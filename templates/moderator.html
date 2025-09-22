@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Moderator</title>
+</head>
+<body>
+    <h2>Moderator</h2>
+
+    <div style="display: flex; gap: 20px;">
+        <iframe src="/player1" width="45%" height="400"></iframe>
+        <iframe src="/player2" width="45%" height="400"></iframe>
+    </div>
+
+    <div>
+        <textarea id="note" placeholder="Write a clarification or note"></textarea>
+        <button onclick="submitNote()">Save Note</button>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+

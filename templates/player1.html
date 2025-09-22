@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Player 1</title>
+</head>
+<body>
+    <h2>Player 1</h2>
+    <div id="card">
+        <p><strong>Secret Card:</strong> Character 7</p>
+        <p><em>Description: Glamorous starlet</em></p>
+    </div>
+    <button onclick="sendAnswer('Yes')">Yes</button>
+    <button onclick="sendAnswer('No')">No</button>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+
