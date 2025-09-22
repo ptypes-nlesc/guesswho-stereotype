@@ -6,8 +6,8 @@
 <body>
     <h2>Player 1</h2>
     <div id="card">
-        <p><strong>Secret Card:</strong> Character 7</p>
-        <p><em>Description: Glamorous starlet</em></p>
+	<p><strong>Secret Card:</strong> {{ card.name }}</p>
+	<p><em>Description: {{ card.description }}</em></p>
     </div>
     <button onclick="sendAnswer('Yes')">Yes</button>
     <button onclick="sendAnswer('No')">No</button>

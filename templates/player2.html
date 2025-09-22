@@ -8,12 +8,11 @@
     <h2>Player 2</h2>
 
     <div id="card-grid">
-        <!-- 12 placeholders -->
-        {% for i in range(1, 13) %}
-            <div class="card" id="card{{ i }}" onclick="eliminateCard('{{ i }}')">
-                Card {{ i }}
-            </div>
-        {% endfor %}
+    {% for card in cards %}
+        <div class="card" id="card{{ card.id }}" onclick="eliminateCard('{{ card.id }}')">
+            <strong>{{ card.name }}</strong><br>
+        </div>
+    {% endfor %}
     </div>
 
     <div>

@@ -2,6 +2,13 @@
 <html>
 <head>
     <title>Moderator</title>
+    <style>
+        /* Prevent clicking inside iframes */
+        iframe {
+            pointer-events: none;
+            border: 1px solid #ccc;
+        }
+    </style>
 </head>
 <body>
     <h2>Moderator</h2>
@@ -12,7 +19,7 @@
     </div>
 
     <div>
-        <textarea id="note" placeholder="Write a clarification or note"></textarea>
+        <textarea id="note" placeholder="Write a clarification for Player 2"></textarea>
         <button onclick="submitNote()">Save Note</button>
     </div>
 

@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify
-import json, os, datetime
+import json, os, datetime, random
 
 app = Flask(__name__)
 
@@ -7,10 +7,13 @@ LOG_FILE = "data/game_log.json"
 
 # ---utility logging
 def log_turn(entry):
-    """Append a new entry to the JSON log file"""
-    if os.path.exists(LOG_FILE):
-        with open (LOG_FILE, "r") as f:
-            data = json.load(f)
+    """Append a new entry to the JSON log file, handling empty file safely."""
+    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 0:
+        try:
+            with open(LOG_FILE, "r") as f:
+                data = json.load(f)
+        except json.JSONDecodeError:
+            data = []  # reset if file is invalid
     else:
         data = []
 
@@ -20,14 +23,22 @@ def log_turn(entry):
     with open(LOG_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
+# ---cards-setup
+with open("data/sample_cards.json") as f:
+    CARDS = json.load(f)
+
+# ---store the chosen card in memore per game session
+CHOSEN_CARD = random.choice(CARDS)
+log_turn({"role": "system", "action": "card_draw", "card": CHOSEN_CARD})
+
 # ---routes for game screens
 @app.route("/player1")
 def player1():
-    return render_template("player1.html")
+    return render_template("player1.html", card=CHOSEN_CARD)
 
 @app.route("/player2")
 def player2():
-    return render_template("player2.html")
+    return render_template("player2.html", cards=CARDS)
 
 @app.route("/moderator")
 def moderator():
@@ -40,10 +51,11 @@ def submit_question():
     log_turn({"role": "player2", "action": "question", "question": q})
     return jsonify({"status":"ok"})
 
-@app.route("/submit_answer", method=["POST"])
-def submit_answer()
+@app.route("/submit_answer", methods=["POST"])
+def submit_answer():
     ans = request.json.get("answer")
     log_turn({"role": "player1", "action": "answer", "answer": ans})
+    return jsonify({"status": "ok"})
 
 @app.route("/eliminate_card", methods=["POST"])
 def eliminate_card():

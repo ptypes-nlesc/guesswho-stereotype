@@ -23,13 +23,14 @@ function eliminateCard(id) {
         body: JSON.stringify({card_id: id})
     });
 }
-
 function submitNote() {
     const note = document.getElementById("note").value;
     fetch("/submit_note", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({note: note})
+    }).then(() => {
+        document.getElementById("note").value = "";
     });
 }
 
