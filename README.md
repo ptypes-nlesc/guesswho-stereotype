@@ -16,8 +16,8 @@ This is a web application for playing "Guess Who" game. The goal of the game is 
 
 ## Virtual env
 
-""" 
+```
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-"""
+```
