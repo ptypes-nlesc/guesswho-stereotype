@@ -13,3 +13,11 @@ This is a web application for playing "Guess Who" game. The goal of the game is 
 - **Storage:** JSON logs (MVP), upgrade to SQLite later  
 - **Deployment:** Local (MVP), online hosting later
 - **Audio:** WebRTC later  
+
+## Virtual env
+
+""" 
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+"""
