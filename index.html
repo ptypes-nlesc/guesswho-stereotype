@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guess Who - Stereotype Study</title>
+    <meta name="description" content="A web application for playing Guess Who game to study stereotypes">
+    <meta name="author" content="Guess Who Stereotype Study">
+    <meta name="keywords" content="guess who, stereotype, bias, diversity, inclusion, educational game">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Guess Who - Stereotype Study</h1>
+        <p class="subtitle">Explore unconscious bias through gameplay</p>
+    </header>
+
+    <main>
+        <div id="game-container">
+            <div id="game-status">
+                <h2>Choose a character for your opponent to guess</h2>
+                <div id="status-message"></div>
+            </div>
+
+            <div id="character-grid" class="character-grid" role="grid" aria-label="Character selection grid">
+                <!-- Characters will be dynamically loaded here -->
+            </div>
+
+            <div id="question-panel" class="question-panel hidden">
+                <h3>Ask a question about the character:</h3>
+                <div id="question-buttons">
+                    <!-- Question buttons will be dynamically loaded here -->
+                </div>
+                <div id="question-result" class="hidden">
+                    <p id="answer-text"></p>
+                    <button id="next-question-btn">Ask Another Question</button>
+                    <button id="make-guess-btn">Make a Guess</button>
+                </div>
+            </div>
+
+            <div id="guess-panel" class="guess-panel hidden">
+                <h3>Who do you think it is?</h3>
+                <div id="guess-grid" class="character-grid small" role="grid" aria-label="Characters available for guessing">
+                    <!-- Available characters for guessing -->
+                </div>
+            </div>
+
+            <div id="game-controls">
+                <button id="start-game-btn" class="primary-btn">Start New Game</button>
+                <button id="reset-game-btn" class="secondary-btn hidden">Reset Game</button>
+            </div>
+        </div>
+
+        <div id="instructions" class="instructions">
+            <h3>How to Play</h3>
+            <ol>
+                <li>Click "Start New Game" to begin</li>
+                <li>Select a character that your opponent (computer) should guess</li>
+                <li>Ask yes/no questions to narrow down the possibilities</li>
+                <li>Try to identify patterns in your questioning strategy</li>
+                <li>Reflect on potential stereotypes in your assumptions</li>
+            </ol>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2024 Guess Who Stereotype Study. Licensed under Apache 2.0</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

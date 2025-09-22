@@ -1,0 +1,30 @@
+{
+  "name": "guesswho-stereotype",
+  "version": "1.0.0",
+  "description": "A web application for playing Guess Who game to study stereotypes and unconscious bias",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "serve": "python3 -m http.server 8080"
+  },
+  "keywords": [
+    "guess-who",
+    "stereotype",
+    "bias",
+    "diversity",
+    "inclusion",
+    "educational",
+    "game",
+    "web-app"
+  ],
+  "author": "Guess Who Stereotype Study Team",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ptypes-nlesc/guesswho-stereotype"
+  },
+  "bugs": {
+    "url": "https://github.com/ptypes-nlesc/guesswho-stereotype/issues"
+  },
+  "homepage": "https://github.com/ptypes-nlesc/guesswho-stereotype#readme"
+}
