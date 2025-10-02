@@ -10,7 +10,7 @@
     <div id="card-grid">
     {% for card in cards %}
         <div class="card" id="card{{ card.id }}" onclick="eliminateCard('{{ card.id }}')">
-            <strong>{{ card.name }}</strong><br>
+            <img src="{{ url_for('static', filename='cards/' + card.id|string + '.png') }}" alt="{{ card.name }}" class="card-image">
         </div>
     {% endfor %}
     </div>

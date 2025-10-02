@@ -6,8 +6,8 @@
 <body>
     <h2>Player 1</h2>
     <div id="card">
-	<p><strong>Secret Card:</strong> {{ card.name }}</p>
-	<p><em>Description: {{ card.description }}</em></p>
+        <img src="{{ url_for('static', filename='cards/' + card.id|string + '.png') }}" alt="{{ card.name }}" class="secret-card-image">
+	<p><strong>Your Secret Card</strong></p>
     </div>
     <button onclick="sendAnswer('Yes')">Yes</button>
     <button onclick="sendAnswer('No')">No</button>
