@@ -1,4 +1,7 @@
 # guesswho-stereotype 🎲
+
+<img src="static/logo.png" alt="GuessWho Stereotype Research Game Logo" width="200">
+
 This is a web application for playing "Guess Who" game. The goal of the game is to study stereotypes associated with pornography without explicitely asking players about them.
 
 ##  ✨ Features (Minimum Viable Product)
