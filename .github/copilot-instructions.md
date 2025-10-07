@@ -15,9 +15,10 @@ This is a Flask-based web application implementing a multi-player "Guess Who" ga
 
 ### Core Flask App (`app.py`)
 
-- Game starts by randomly selecting one card from `data/sample_cards.json`
+- Game starts by auto-generating 12 cards (IDs 1-12) linked to PNG files  
 - Uses `log_turn()` utility for consistent JSON logging format: `{"role": "player1|player2|moderator", "action": "question|answer|eliminate|note", ...}`
 - Four main API endpoints mirror the three player actions plus moderator notes
+- Server-side elimination tracking with real-time moderator updates
 
 ### Frontend Architecture
 
@@ -38,10 +39,11 @@ Player 2 asks question → logged → Player 1 answers → logged → Player 2 e
 
 ### Card Data Structure
 
-Cards in `data/sample_cards.json` use: `{"id": number, "name": string, "description": string}`
+Cards are auto-generated in Python: `CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]`
 
-- Currently placeholder data ("Stereotype A", "Stereotype B")
+- Direct mapping: Card ID 1 → `static/cards/1.png`, Card ID 2 → `static/cards/2.png`, etc.
 - Grid displays exactly 12 cards in 4x3 CSS grid layout
+- Visual-only interface with no text descriptions for unbiased research
 
 ### API Response Pattern
 
