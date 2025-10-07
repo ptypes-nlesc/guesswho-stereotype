@@ -56,6 +56,28 @@
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        let lastUpdateCheck = 0;
+        
+        // Check for updates every 2 seconds, but only refresh if needed
+        setInterval(function() {
+            // Check if there are new eliminations by polling a status endpoint
+            fetch('/game_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.last_update > lastUpdateCheck) {
+                        // Only refresh Player 2 iframe (where eliminations happen)
+                        const player2Frame = document.querySelector('iframe[title="Player 2 View - Card Grid and Questions"]');
+                        if (player2Frame) {
+                            const currentSrc = player2Frame.src.split('?')[0];
+                            player2Frame.src = currentSrc + '?t=' + new Date().getTime();
+                        }
+                        lastUpdateCheck = data.last_update;
+                    }
+                })
+                .catch(err => console.log('Status check failed:', err));
+        }, 2000); // Check every 2 seconds
+    </script>
 </body>
 
 </html>

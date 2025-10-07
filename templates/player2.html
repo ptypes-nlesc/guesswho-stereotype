@@ -11,7 +11,7 @@
 
     <div id="card-grid">
         {% for card in cards %}
-        <div class="card" id="card{{ card.id }}" onclick="eliminateCard('{{ card.id }}')">
+        <div class="card{% if card.id in eliminated %} eliminated{% endif %}" id="card{{ card.id }}" onclick="eliminateCard('{{ card.id }}')">
             <img src="{{ url_for('static', filename='cards/' + card.id|string + '.png') }}" alt="{{ card.name }}"
                 class="card-image">
         </div>
