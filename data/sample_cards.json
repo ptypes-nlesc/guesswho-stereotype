@@ -1,15 +1,15 @@
 [
-  {"id": 1, "name": "Card 1", "description": "Stereotype A"},
-  {"id": 2, "name": "Card 2", "description": "Stereotype B"},
-  {"id": 3, "name": "Card 3", "description": "Stereotype C"},
-  {"id": 4, "name": "Card 4", "description": "Stereotype D"},
-  {"id": 5, "name": "Card 5", "description": "Stereotype E"},
-  {"id": 6, "name": "Card 6", "description": "Stereotype F"},
-  {"id": 7, "name": "Card 7", "description": "Stereotype G"},
-  {"id": 8, "name": "Card 8", "description": "Stereotype H"},
-  {"id": 9, "name": "Card 9", "description": "Stereotype I"},
-  {"id": 10, "name": "Card 10", "description": "Stereotype J"},
-  {"id": 11, "name": "Card 11", "description": "Stereotype K"},
-  {"id": 12, "name": "Card 12", "description": "Stereotype L"}
+  {"id": 1, "name": "Card 1"},
+  {"id": 2, "name": "Card 2"},
+  {"id": 3, "name": "Card 3"},
+  {"id": 4, "name": "Card 4"},
+  {"id": 5, "name": "Card 5"},
+  {"id": 6, "name": "Card 6"},
+  {"id": 7, "name": "Card 7"},
+  {"id": 8, "name": "Card 8"},
+  {"id": 9, "name": "Card 9"},
+  {"id": 10, "name": "Card 10"},
+  {"id": 11, "name": "Card 11"},
+  {"id": 12, "name": "Card 12"}
 ]
 

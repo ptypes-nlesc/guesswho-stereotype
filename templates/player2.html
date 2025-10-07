@@ -1,18 +1,21 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Player 2</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
+
 <body>
     <h2>Player 2</h2>
 
     <div id="card-grid">
-    {% for card in cards %}
+        {% for card in cards %}
         <div class="card" id="card{{ card.id }}" onclick="eliminateCard('{{ card.id }}')">
-            <img src="{{ url_for('static', filename='cards/' + card.id|string + '.png') }}" alt="{{ card.name }}" class="card-image">
+            <img src="{{ url_for('static', filename='cards/' + card.id|string + '.png') }}" alt="{{ card.name }}"
+                class="card-image">
         </div>
-    {% endfor %}
+        {% endfor %}
     </div>
 
     <div>
@@ -22,5 +25,5 @@
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
-</html>
 
+</html>
