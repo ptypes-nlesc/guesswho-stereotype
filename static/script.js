@@ -1,19 +1,4 @@
-function submitQuestion() {
-  const q = document.getElementById('question').value;
-  fetch('/submit_question', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: q }),
-  });
-}
-
-function sendAnswer(ans) {
-  fetch('/submit_answer', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer: ans }),
-  });
-}
+// submitQuestion and sendAnswer removed: UI no longer exposes direct question/answer controls
 
 function eliminateCard(id) {
   document.getElementById('card' + id).classList.add('eliminated');
@@ -23,16 +8,7 @@ function eliminateCard(id) {
     body: JSON.stringify({ card_id: id }),
   });
 }
-function submitNote() {
-  const note = document.getElementById('note').value;
-  fetch('/submit_note', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ note: note }),
-  }).then(() => {
-    document.getElementById('note').value = '';
-  });
-}
+// submitNote removed: moderator no longer saves notes via the UI
 
 // --- Chat helpers
 function sendChat(role) {
@@ -92,9 +68,7 @@ try {
   socket.on('connect', () => appendTranscriptEntry({role: 'system', action: 'connected', text: 'socket connected'}));
   socket.on('connect_error', (err) => appendTranscriptEntry({role: 'system', action: 'connect_error', text: String(err)}));
 
-  socket.on('question', (data) => appendTranscriptEntry(data));
-  socket.on('answer', (data) => appendTranscriptEntry(data));
-  socket.on('note', (data) => appendTranscriptEntry(data));
+  // question/answer/note socket events removed (UI no longer uses them)
   socket.on('eliminate', (data) => {
     appendTranscriptEntry(data);
     // apply elimination visually if present
