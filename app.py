@@ -67,7 +67,7 @@ def submit_question():
     payload = {"role": "player2", "action": "question", "question": q}
     log_turn(payload)
     # broadcast to all connected clients
-    socketio.emit('question', payload, broadcast=True)
+    socketio.emit('question', payload)
     return jsonify({"status": "ok"})
 
 
@@ -81,7 +81,8 @@ def handle_join(data):
     # Debug log
     print(f"DEBUG: socket joined room {room}")
     # Optionally notify room that someone joined
-    socketio.emit('system', {'action': 'join', 'room': room}, broadcast=True)
+    # emit only to the room that was just joined
+    socketio.emit('system', {'action': 'join', 'room': room}, to=room)
 
 
 @socketio.on('connect')
@@ -115,7 +116,7 @@ def handle_chat(data):
     # Debug log
     print(f"DEBUG: chat from {payload.get('role')} in game {game_id}: {payload.get('text')}")
     # broadcast to all connected clients (room-based delivery may miss clients who haven't joined yet)
-    socketio.emit('chat', payload, broadcast=True)
+    socketio.emit('chat', payload, to=room)
 
 
 @app.route('/submit_chat', methods=['POST'])
@@ -132,7 +133,7 @@ def submit_chat():
     }
     log_turn(payload)
     print(f"DEBUG: HTTP chat fallback from {payload.get('role')} in game {game_id}: {payload.get('text')}")
-    socketio.emit('chat', payload, broadcast=True)
+    socketio.emit('chat', payload, to=room)
     return jsonify({'status': 'ok'})
 
 
@@ -141,7 +142,7 @@ def submit_answer():
     ans = request.json.get("answer")
     payload = {"role": "player1", "action": "answer", "answer": ans}
     log_turn(payload)
-    socketio.emit('answer', payload, broadcast=True)
+    socketio.emit('answer', payload)
     return jsonify({"status": "ok"})
 
 
@@ -155,7 +156,8 @@ def eliminate_card():
     payload = {"role": "player2", "action": "eliminate", "card": cid}
     log_turn(payload)
     # let all clients know which card was eliminated
-    socketio.emit('eliminate', {"card": int(cid), "eliminated": list(ELIMINATED_CARDS), **payload}, broadcast=True)
+    # emit elimination to the default game room
+    socketio.emit('eliminate', {"card": int(cid), "eliminated": list(ELIMINATED_CARDS), **payload}, to="game:default")
     return jsonify({"status": "ok"})
 
 
@@ -164,7 +166,7 @@ def submit_note():
     note = request.json.get("note")
     payload = {"role": "moderator", "action": "note", "note": note}
     log_turn(payload)
-    socketio.emit('note', payload, broadcast=True)
+    socketio.emit('note', payload)
     return jsonify({"status": "ok"})
 
 
