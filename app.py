@@ -4,7 +4,7 @@ import os
 import random
 
 from flask import Flask, jsonify, render_template, request
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, join_room, leave_room
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -69,6 +69,54 @@ def submit_question():
     # broadcast to all connected clients
     socketio.emit('question', payload, broadcast=True)
     return jsonify({"status": "ok"})
+
+
+# --- Socket event handlers
+@socketio.on('join')
+def handle_join(data):
+    """Client asks to join a game room. data should contain game_id."""
+    game_id = data.get('game_id', 'default')
+    room = f"game:{game_id}"
+    join_room(room)
+    # Optionally notify room that someone joined
+    socketio.emit('system', {'action': 'join', 'room': room}, room=room)
+
+
+@socketio.on('chat')
+def handle_chat(data):
+    """Receive chat from a client, persist it, and broadcast to the room.
+
+    Expected data: { game_id, role, text }
+    """
+    game_id = data.get('game_id', 'default')
+    room = f"game:{game_id}"
+    payload = {
+        'role': data.get('role', 'unknown'),
+        'action': 'chat',
+        'text': data.get('text', ''),
+        'game_id': game_id,
+    }
+    # persist on disk for research audit
+    log_turn(payload)
+    # broadcast to room
+    socketio.emit('chat', payload, room=room)
+
+
+@app.route('/submit_chat', methods=['POST'])
+def submit_chat():
+    """HTTP fallback for submitting chat (also logs and emits to room)."""
+    data = request.json or {}
+    game_id = data.get('game_id', 'default')
+    room = f"game:{game_id}"
+    payload = {
+        'role': data.get('role', 'unknown'),
+        'action': 'chat',
+        'text': data.get('text', ''),
+        'game_id': game_id,
+    }
+    log_turn(payload)
+    socketio.emit('chat', payload, room=room)
+    return jsonify({'status': 'ok'})
 
 
 @app.route("/submit_answer", methods=["POST"])

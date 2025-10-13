@@ -900,5 +900,68 @@
     "action": "eliminate",
     "card": "4",
     "timestamp": "2025-10-07T16:05:43.599428"
+  },
+  {
+    "role": "system",
+    "action": "card_draw",
+    "card": {
+      "id": 2,
+      "name": "Card 2"
+    },
+    "timestamp": "2025-10-13T14:59:08.593985"
+  },
+  {
+    "role": "system",
+    "action": "card_draw",
+    "card": {
+      "id": 6,
+      "name": "Card 6"
+    },
+    "timestamp": "2025-10-13T14:59:08.710617"
+  },
+  {
+    "role": "system",
+    "action": "card_draw",
+    "card": {
+      "id": 2,
+      "name": "Card 2"
+    },
+    "timestamp": "2025-10-13T14:59:27.860532"
+  },
+  {
+    "role": "system",
+    "action": "card_draw",
+    "card": {
+      "id": 12,
+      "name": "Card 12"
+    },
+    "timestamp": "2025-10-13T14:59:27.976687"
+  },
+  {
+    "role": "system",
+    "action": "card_draw",
+    "card": {
+      "id": 6,
+      "name": "Card 6"
+    },
+    "timestamp": "2025-10-13T15:00:03.866719"
+  },
+  {
+    "role": "system",
+    "action": "card_draw",
+    "card": {
+      "id": 2,
+      "name": "Card 2"
+    },
+    "timestamp": "2025-10-13T15:00:30.635040"
+  },
+  {
+    "role": "system",
+    "action": "card_draw",
+    "card": {
+      "id": 11,
+      "name": "Card 11"
+    },
+    "timestamp": "2025-10-13T15:01:02.010295"
   }
 ]
