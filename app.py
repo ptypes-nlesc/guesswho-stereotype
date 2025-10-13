@@ -2,6 +2,8 @@ import datetime
 import json
 import os
 import random
+import sqlite3
+import uuid
 
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO, join_room
@@ -9,50 +11,178 @@ from flask_socketio import SocketIO, join_room
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-LOG_FILE = "data/game_log.json"
+LOG_FILE = "data/game_log.json"  # legacy JSON audit file (no longer written by default)
+DB_PATH = "db/games.db"
 
 
 # ---utility logging
 def log_turn(entry):
     """Append a new entry to the JSON log file, handling empty file safely."""
-    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 0:
-        try:
-            with open(LOG_FILE, "r") as f:
-                data = json.load(f)
-        except json.JSONDecodeError:
-            data = []  # reset if file is invalid
-    else:
-        data = []
-
+    # ensure timestamp
     entry["timestamp"] = datetime.datetime.now().isoformat()
-    data.append(entry)
 
-    with open(LOG_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    # Persist to SQLite as canonical store
+    try:
+        db_log_event(entry)
+    except Exception as e:
+        print(f"DEBUG: failed to write event to DB: {e}")
+
+    # Legacy JSON audit file is no longer written by default. If you want the
+    # human-readable append log, re-enable the JSON write here.
 
 
 # ---cards-setup (auto-generate from 1-12)
 CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
 
-# ---store the chosen card in memory per game session
-CHOSEN_CARD = random.choice(CARDS)
-log_turn({"role": "system", "action": "card_draw", "card": CHOSEN_CARD})
 
-# ---track eliminated cards
-ELIMINATED_CARDS = set()
+# --- SQLite helpers and per-game persistence
+def get_db_conn():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS games (
+            id TEXT PRIMARY KEY,
+            created_at TEXT,
+            chosen_card INTEGER
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT,
+            role TEXT,
+            action TEXT,
+            text TEXT,
+            card INTEGER,
+            timestamp TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS eliminated_cards (
+            game_id TEXT,
+            card_id INTEGER,
+            eliminated_at TEXT,
+            PRIMARY KEY(game_id, card_id)
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def create_game(game_id=None):
+    """Create a new game with a random chosen card and return the game id and chosen card id."""
+    if game_id is None:
+        game_id = uuid.uuid4().hex
+    chosen_card = random.choice(CARDS)["id"]
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
+        (game_id, datetime.datetime.now().isoformat(), chosen_card),
+    )
+    conn.commit()
+    conn.close()
+    # log the card draw as a system event
+    log_turn({"role": "system", "action": "card_draw", "card": chosen_card, "game_id": game_id})
+    return game_id, chosen_card
+
+
+def db_log_event(entry):
+    game_id = entry.get("game_id", "default")
+    role = entry.get("role")
+    action = entry.get("action")
+    text = entry.get("text") or entry.get("note") or entry.get("question") or entry.get("answer")
+    card = None
+    if "card" in entry:
+        try:
+            card = int(entry.get("card"))
+        except Exception:
+            card = None
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO events (game_id, role, action, text, card, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+        (game_id, role, action, text, card, entry.get("timestamp")),
+    )
+    # if elimination, record eliminated_cards table for easy counting
+    if action == "eliminate" and card is not None:
+        cur.execute(
+            "INSERT OR REPLACE INTO eliminated_cards (game_id, card_id, eliminated_at) VALUES (?, ?, ?)",
+            (game_id, card, entry.get("timestamp")),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_transcript_from_db(game_id="default", limit=200):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM events WHERE game_id = ? ORDER BY id DESC LIMIT ?",
+        (game_id, limit),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    # return as list oldest->newest
+    out = [dict(r) for r in reversed(rows)]
+    return out
+
+
+def get_eliminated_for_game(game_id="default"):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT card_id FROM eliminated_cards WHERE game_id = ?", (game_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return {r[0] for r in rows}
+
+
+def get_chosen_card(game_id="default"):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT chosen_card FROM games WHERE id = ?", (game_id,))
+    r = cur.fetchone()
+    conn.close()
+    if r:
+        return r[0]
+    return None
+
+
+# ensure DB exists and a default game is present
+init_db()
+_default_game_id, _ = create_game("default")
+
 LAST_UPDATE = 0
 
 
 # ---routes for game screens
 @app.route("/player1")
 def player1():
-    return render_template("player1.html", card=CHOSEN_CARD)
+    game_id = request.args.get('game_id', 'default')
+    chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
+    return render_template("player1.html", card={"id": chosen, "name": f"Card {chosen}"}, game_id=game_id)
 
 
 @app.route("/player2")
 def player2():
-    print(f"DEBUG: ELIMINATED_CARDS = {ELIMINATED_CARDS}")  # Debug output
-    return render_template("player2.html", cards=CARDS, eliminated=ELIMINATED_CARDS)
+    game_id = request.args.get('game_id', 'default')
+    eliminated = get_eliminated_for_game(game_id)
+    print(f"DEBUG: ELIMINATED_CARDS for {game_id} = {eliminated}")  # Debug output
+    return render_template("player2.html", cards=CARDS, eliminated=eliminated, game_id=game_id)
 
 
 @app.route("/moderator")
@@ -63,11 +193,13 @@ def moderator():
 # ---API endpoints
 @app.route("/submit_question", methods=["POST"])
 def submit_question():
-    q = request.json.get("question")
-    payload = {"role": "player2", "action": "question", "question": q}
+    data = request.get_json(silent=True) or {}
+    q = data.get("question")
+    game_id = data.get('game_id', 'default')
+    payload = {"role": "player2", "action": "question", "question": q, "game_id": game_id}
     log_turn(payload)
-    # broadcast to all connected clients
-    socketio.emit('question', payload)
+    # emit to the game's room
+    socketio.emit('question', payload, to=f"game:{game_id}")
     return jsonify({"status": "ok"})
 
 
@@ -122,7 +254,7 @@ def handle_chat(data):
 @app.route('/submit_chat', methods=['POST'])
 def submit_chat():
     """HTTP fallback for submitting chat (also logs and emits to room)."""
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     game_id = data.get('game_id', 'default')
     room = f"game:{game_id}"
     payload = {
@@ -139,42 +271,72 @@ def submit_chat():
 
 @app.route("/submit_answer", methods=["POST"])
 def submit_answer():
-    ans = request.json.get("answer")
-    payload = {"role": "player1", "action": "answer", "answer": ans}
+    data = request.get_json(silent=True) or {}
+    ans = data.get("answer")
+    game_id = data.get('game_id', 'default')
+    payload = {"role": "player1", "action": "answer", "answer": ans, "game_id": game_id}
     log_turn(payload)
-    socketio.emit('answer', payload)
+    socketio.emit('answer', payload, to=f"game:{game_id}")
     return jsonify({"status": "ok"})
 
 
 @app.route("/eliminate_card", methods=["POST"])
 def eliminate_card():
     global LAST_UPDATE
-    cid = request.json.get("card_id")
-    ELIMINATED_CARDS.add(int(cid))  # Add to server-side tracking
+    data = request.get_json(silent=True) or {}
+    cid = data.get("card_id")
+    if cid is None:
+        return jsonify({"status": "error", "message": "card_id is required"}), 400
+    game_id = data.get('game_id', 'default')
     LAST_UPDATE = datetime.datetime.now().timestamp()  # Update timestamp
-    print(f"DEBUG: Eliminated card {cid}, ELIMINATED_CARDS now = {ELIMINATED_CARDS}")  # Debug
-    payload = {"role": "player2", "action": "eliminate", "card": cid}
+    payload = {"role": "player2", "action": "eliminate", "card": cid, "game_id": game_id}
     log_turn(payload)
-    # let all clients know which card was eliminated
-    # emit elimination to the default game room
-    socketio.emit('eliminate', {"card": int(cid), "eliminated": list(ELIMINATED_CARDS), **payload}, to="game:default")
+    # fetch eliminated set from DB after logging
+    eliminated = get_eliminated_for_game(game_id)
+    print(f"DEBUG: Eliminated card {cid} for game {game_id}, eliminated now = {eliminated}")  # Debug
+    # let all clients in the room know which card was eliminated
+    try:
+        cid_int = int(cid)
+    except Exception:
+        return jsonify({"status": "error", "message": "card_id must be an integer"}), 400
+    socketio.emit('eliminate', {"card": cid_int, "eliminated": list(eliminated), **payload}, to=f"game:{game_id}")
     return jsonify({"status": "ok"})
+
+
+
+@app.route('/create_game', methods=['POST'])
+def create_game_route():
+    """Create a new game and return the game id and chosen card.
+
+    Optional JSON body: { "game_id": "customid" }
+    If no game_id provided, a UUID-based id is returned.
+    """
+    data = request.get_json(silent=True) or {}
+    requested = data.get('game_id')
+    game_id, chosen = create_game(requested)
+    # notify clients a new game exists (emit to the new game's room)
+    socketio.emit('new_game', {'game_id': game_id, 'chosen_card': chosen}, to=f"game:{game_id}")
+    return jsonify({'status': 'ok', 'game_id': game_id, 'chosen_card': chosen})
 
 
 @app.route("/submit_note", methods=["POST"])
 def submit_note():
-    note = request.json.get("note")
-    payload = {"role": "moderator", "action": "note", "note": note}
+    data = request.get_json(silent=True) or {}
+    note = data.get("note")
+    game_id = data.get('game_id', 'default')
+    payload = {"role": "moderator", "action": "note", "note": note, "game_id": game_id}
     log_turn(payload)
-    socketio.emit('note', payload)
+    socketio.emit('note', payload, to=f"game:{game_id}")
     return jsonify({"status": "ok"})
 
 
 @app.route("/game_status")
 def game_status():
     """Return current game status for moderator polling"""
+    game_id = request.args.get('game_id', 'default')
+    eliminated = get_eliminated_for_game(game_id)
     return jsonify({
-        "eliminated_count": len(ELIMINATED_CARDS),
+        "eliminated_count": len(eliminated),
         "last_update": LAST_UPDATE
     })
 
@@ -182,9 +344,9 @@ def game_status():
 @app.route('/debug_emit')
 def debug_emit():
     """Emit a test chat message to all clients and log it (development helper)."""
-    payload = {'role': 'system', 'action': 'debug', 'text': 'debug ping from server'}
+    payload = {'role': 'system', 'action': 'debug', 'text': 'debug ping from server', 'game_id': 'default'}
     log_turn(payload)
-    socketio.emit('chat', payload)
+    socketio.emit('chat', payload, to="game:default")
     return jsonify({'status': 'ok', 'sent': payload})
 
 
@@ -202,23 +364,24 @@ def transcript():
     except ValueError:
         limit = 200
 
-    if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
-        return jsonify([])
-
+    # Prefer DB-backed transcript
     try:
-        with open(LOG_FILE, 'r') as f:
-            data = json.load(f)
+        result = get_transcript_from_db(game_id, limit)
+        return jsonify(result)
     except Exception:
-        return jsonify([])
+        # fallback to JSON file (backwards compatible)
+        if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
+            return jsonify([])
+        try:
+            with open(LOG_FILE, 'r') as f:
+                data = json.load(f)
+        except Exception:
+            return jsonify([])
 
-    # Filter entries relevant to the requested game. Include system entries too.
-    filtered = [e for e in data if (
-        e.get('game_id') == game_id or e.get('role') == 'system' or e.get('action') in ('chat','question','answer','eliminate','note')
-    )]
-
-    # Return last N entries
-    result = filtered[-limit:]
-    return jsonify(result)
+        filtered = [e for e in data if (
+            e.get('game_id') == game_id or e.get('role') == 'system' or e.get('action') in ('chat','question','answer','eliminate','note')
+        )]
+        return jsonify(filtered[-limit:])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+venv/
+.env
+.pytest_cache/
+data/game_log.json
+nohup.out
