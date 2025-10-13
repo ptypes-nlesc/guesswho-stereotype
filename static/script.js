@@ -33,3 +33,34 @@ function submitNote() {
     document.getElementById('note').value = '';
   });
 }
+
+// --- Socket.IO client setup (will silently fail if socket.io library not loaded)
+try {
+  const socket = io();
+
+  // Append an event to any transcript containers
+  function appendTranscriptEntry(obj) {
+    const containers = document.querySelectorAll('.transcript');
+    containers.forEach(c => {
+      const el = document.createElement('div');
+      el.className = 'transcript-entry';
+      el.textContent = `[${obj.role}] ${obj.action}` + (obj.question ? `: ${obj.question}` : '') + (obj.answer ? `: ${obj.answer}` : '') + (obj.note ? `: ${obj.note}` : '') + (obj.card ? `: card ${obj.card}` : '');
+      c.appendChild(el);
+      c.scrollTop = c.scrollHeight;
+    });
+  }
+
+  socket.on('question', (data) => appendTranscriptEntry(data));
+  socket.on('answer', (data) => appendTranscriptEntry(data));
+  socket.on('note', (data) => appendTranscriptEntry(data));
+  socket.on('eliminate', (data) => {
+    appendTranscriptEntry(data);
+    // apply elimination visually if present
+    if (data.card) {
+      const el = document.getElementById('card' + data.card);
+      if (el) el.classList.add('eliminated');
+    }
+  });
+} catch (e) {
+  // socket.io script not present; ignore
+}

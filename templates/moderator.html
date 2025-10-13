@@ -55,6 +55,10 @@
         <button onclick="submitNote()">Save Note</button>
     </div>
 
+    <h3>Transcript</h3>
+    <div class="transcript" style="height:200px;overflow:auto;border:1px solid #ccc;padding:8px;margin-top:10px;"></div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script>
         let lastUpdateCheck = 0;
