@@ -104,6 +104,11 @@ def db_log_event(entry):
     game_id = entry.get("game_id", "default")
     role = entry.get("role")
     action = entry.get("action")
+    # Ignore transient UI-only events — do not persist these research-unimportant events
+    if action in ("question", "answer", "note"):
+        # keep a minimal debug trace on server stdout, but don't insert into DB
+        print(f"DEBUG: skipping persistence for action={action} (game={game_id})")
+        return
     text = entry.get("text") or entry.get("note") or entry.get("question") or entry.get("answer")
     card = None
     if "card" in entry:

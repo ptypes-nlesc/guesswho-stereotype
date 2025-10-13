@@ -68,9 +68,7 @@ try {
   socket.on('connect', () => appendTranscriptEntry({role: 'system', action: 'connected', text: 'socket connected'}));
   socket.on('connect_error', (err) => appendTranscriptEntry({role: 'system', action: 'connect_error', text: String(err)}));
 
-  socket.on('question', (data) => appendTranscriptEntry(data));
-  socket.on('answer', (data) => appendTranscriptEntry(data));
-  socket.on('note', (data) => appendTranscriptEntry(data));
+  // question/answer/note socket events removed (UI no longer uses them)
   socket.on('eliminate', (data) => {
     appendTranscriptEntry(data);
     // apply elimination visually if present
