@@ -190,17 +190,11 @@ def moderator():
     return render_template("moderator.html")
 
 
-# ---API endpoints
-@app.route("/submit_question", methods=["POST"])
-def submit_question():
-    data = request.get_json(silent=True) or {}
-    q = data.get("question")
-    game_id = data.get('game_id', 'default')
-    payload = {"role": "player2", "action": "question", "question": q, "game_id": game_id}
-    log_turn(payload)
-    # emit to the game's room
-    socketio.emit('question', payload, to=f"game:{game_id}")
-    return jsonify({"status": "ok"})
+# API endpoints are implemented primarily via Socket.IO events now. The
+# /submit_question, /submit_answer and /submit_note HTTP endpoints were removed
+# because the UI no longer exposes direct controls for them. Socket events
+# ('question','answer','note','chat','eliminate') remain supported for real-time
+# communication.
 
 
 # --- Socket event handlers
@@ -269,15 +263,7 @@ def submit_chat():
     return jsonify({'status': 'ok'})
 
 
-@app.route("/submit_answer", methods=["POST"])
-def submit_answer():
-    data = request.get_json(silent=True) or {}
-    ans = data.get("answer")
-    game_id = data.get('game_id', 'default')
-    payload = {"role": "player1", "action": "answer", "answer": ans, "game_id": game_id}
-    log_turn(payload)
-    socketio.emit('answer', payload, to=f"game:{game_id}")
-    return jsonify({"status": "ok"})
+# (submit_answer removed)
 
 
 @app.route("/eliminate_card", methods=["POST"])
@@ -319,15 +305,7 @@ def create_game_route():
     return jsonify({'status': 'ok', 'game_id': game_id, 'chosen_card': chosen})
 
 
-@app.route("/submit_note", methods=["POST"])
-def submit_note():
-    data = request.get_json(silent=True) or {}
-    note = data.get("note")
-    game_id = data.get('game_id', 'default')
-    payload = {"role": "moderator", "action": "note", "note": note, "game_id": game_id}
-    log_turn(payload)
-    socketio.emit('note', payload, to=f"game:{game_id}")
-    return jsonify({"status": "ok"})
+# (submit_note removed)
 
 
 @app.route("/game_status")
