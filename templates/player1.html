@@ -15,8 +15,6 @@
     <button onclick="sendAnswer('Yes')">Yes</button>
     <button onclick="sendAnswer('No')">No</button>
 
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
-
     <h3>Transcript</h3>
     <div class="transcript" style="height:120px;overflow:auto;border:1px solid #ccc;padding:8px;"></div>
 
@@ -24,6 +22,9 @@
         <input type="text" id="chat-input" placeholder="Send a message to all participants" style="width:70%;"> 
         <button onclick="sendChat('player1')">Send</button>
     </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 
 </html>
