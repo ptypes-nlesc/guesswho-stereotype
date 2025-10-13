@@ -67,17 +67,30 @@ try {
   // join default game room
   socket.emit('join', { game_id: 'default' });
 
+  // Fetch recent transcript for this game and display it
+  fetch('/transcript?game_id=default&limit=200')
+    .then(r => r.json())
+    .then(arr => {
+      arr.forEach(entry => appendTranscriptEntry(entry));
+    })
+    .catch(err => console.error('transcript fetch failed', err));
+
   // Append an event to any transcript containers
   function appendTranscriptEntry(obj) {
     const containers = document.querySelectorAll('.transcript');
     containers.forEach(c => {
       const el = document.createElement('div');
       el.className = 'transcript-entry';
-      el.textContent = `[${obj.role}] ${obj.action}` + (obj.question ? `: ${obj.question}` : '') + (obj.answer ? `: ${obj.answer}` : '') + (obj.note ? `: ${obj.note}` : '') + (obj.card ? `: card ${obj.card}` : '');
+      // Prefer text/message, fallback to note/question/answer
+      const text = obj.text || obj.message || obj.note || obj.question || obj.answer || '';
+      el.textContent = `[${obj.role}] ${obj.action}` + (obj.card ? `: card ${obj.card}` : '') + (text ? `: ${text}` : '');
       c.appendChild(el);
       c.scrollTop = c.scrollHeight;
     });
   }
+
+  socket.on('connect', () => appendTranscriptEntry({role: 'system', action: 'connected', text: 'socket connected'}));
+  socket.on('connect_error', (err) => appendTranscriptEntry({role: 'system', action: 'connect_error', text: String(err)}));
 
   socket.on('question', (data) => appendTranscriptEntry(data));
   socket.on('answer', (data) => appendTranscriptEntry(data));
@@ -90,7 +103,7 @@ try {
       if (el) el.classList.add('eliminated');
     }
   });
-  socket.on('chat', (data) => appendTranscriptEntry(data));
+  socket.on('chat', (data) => { console.log('socket chat received', data); appendTranscriptEntry(data); });
 } catch (e) {
   // socket.io script not present; ignore
 }

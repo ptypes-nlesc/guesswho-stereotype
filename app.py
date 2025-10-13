@@ -4,7 +4,7 @@ import os
 import random
 
 from flask import Flask, jsonify, render_template, request
-from flask_socketio import SocketIO, join_room, leave_room
+from flask_socketio import SocketIO, join_room
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -78,8 +78,22 @@ def handle_join(data):
     game_id = data.get('game_id', 'default')
     room = f"game:{game_id}"
     join_room(room)
+    # Debug log
+    print(f"DEBUG: socket joined room {room}")
     # Optionally notify room that someone joined
-    socketio.emit('system', {'action': 'join', 'room': room}, room=room)
+    socketio.emit('system', {'action': 'join', 'room': room}, broadcast=True)
+
+
+@socketio.on('connect')
+def handle_connect():
+    sid = request.sid if hasattr(request, 'sid') else None
+    print(f"DEBUG: client connected sid={sid}")
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    sid = request.sid if hasattr(request, 'sid') else None
+    print(f"DEBUG: client disconnected sid={sid}")
 
 
 @socketio.on('chat')
@@ -98,8 +112,10 @@ def handle_chat(data):
     }
     # persist on disk for research audit
     log_turn(payload)
-    # broadcast to room
-    socketio.emit('chat', payload, room=room)
+    # Debug log
+    print(f"DEBUG: chat from {payload.get('role')} in game {game_id}: {payload.get('text')}")
+    # broadcast to all connected clients (room-based delivery may miss clients who haven't joined yet)
+    socketio.emit('chat', payload, broadcast=True)
 
 
 @app.route('/submit_chat', methods=['POST'])
@@ -115,7 +131,8 @@ def submit_chat():
         'game_id': game_id,
     }
     log_turn(payload)
-    socketio.emit('chat', payload, room=room)
+    print(f"DEBUG: HTTP chat fallback from {payload.get('role')} in game {game_id}: {payload.get('text')}")
+    socketio.emit('chat', payload, broadcast=True)
     return jsonify({'status': 'ok'})
 
 
@@ -158,6 +175,48 @@ def game_status():
         "eliminated_count": len(ELIMINATED_CARDS),
         "last_update": LAST_UPDATE
     })
+
+
+@app.route('/debug_emit')
+def debug_emit():
+    """Emit a test chat message to all clients and log it (development helper)."""
+    payload = {'role': 'system', 'action': 'debug', 'text': 'debug ping from server'}
+    log_turn(payload)
+    socketio.emit('chat', payload)
+    return jsonify({'status': 'ok', 'sent': payload})
+
+
+@app.route('/transcript')
+def transcript():
+    """Return recent transcript events for a game.
+
+    Query params:
+      game_id (optional): filter by game id (default: 'default')
+      limit (optional): max number of items to return (default: 200)
+    """
+    game_id = request.args.get('game_id', 'default')
+    try:
+        limit = int(request.args.get('limit', '200'))
+    except ValueError:
+        limit = 200
+
+    if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
+        return jsonify([])
+
+    try:
+        with open(LOG_FILE, 'r') as f:
+            data = json.load(f)
+    except Exception:
+        return jsonify([])
+
+    # Filter entries relevant to the requested game. Include system entries too.
+    filtered = [e for e in data if (
+        e.get('game_id') == game_id or e.get('role') == 'system' or e.get('action') in ('chat','question','answer','eliminate','note')
+    )]
+
+    # Return last N entries
+    result = filtered[-limit:]
+    return jsonify(result)
 
 
 if __name__ == "__main__":
