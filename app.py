@@ -90,9 +90,11 @@ def create_game(game_id=None):
     conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT OR IGNORE INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
+        "INSERT OR REPLACE INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
         (game_id, datetime.datetime.now().isoformat(), chosen_card),
     )
+    # Clear eliminated cards for this game when starting a new/updated game
+    cur.execute("DELETE FROM eliminated_cards WHERE game_id = ?", (game_id,))
     conn.commit()
     conn.close()
     # log the card draw as a system event
@@ -159,11 +161,22 @@ def get_eliminated_for_game(game_id="default"):
 def get_chosen_card(game_id="default"):
     conn = get_db_conn()
     cur = conn.cursor()
+    # First try the games table
     cur.execute("SELECT chosen_card FROM games WHERE id = ?", (game_id,))
     r = cur.fetchone()
-    conn.close()
-    if r:
+    if r and r[0] is not None:
+        conn.close()
         return r[0]
+
+    # Fallback: use the most recent card_draw event for this game (if any)
+    cur.execute(
+        "SELECT card FROM events WHERE game_id = ? AND action = 'card_draw' ORDER BY id DESC LIMIT 1",
+        (game_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if row:
+        return row[0]
     return None
 
 
@@ -370,4 +383,7 @@ def transcript():
 if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
     # Use Socket.IO runner so websocket clients work in development
-    socketio.run(app, debug=True)
+    # Disable Flask's reloader to avoid duplicate processes which can cause socket clients
+    # to disconnect/reconnect frequently during development. Use a dedicated launcher
+    # if you need automatic reloads.
+    socketio.run(app, debug=True, use_reloader=False)
