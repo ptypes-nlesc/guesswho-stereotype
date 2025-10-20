@@ -309,42 +309,43 @@ def eliminate_card():
 
 
 @app.route('/create_game', methods=['POST'])
-def create_game_route():
-    """Create a new game and return the game id and chosen card.
+def create_game(game_id=None):
+    """Create a new game with a random chosen card and return the game id and chosen card id.
 
-    Optional JSON body: { "game_id": "customid" }
-    If no game_id provided, a UUID-based id is returned.
+    This function is intentionally non-destructive: it will create a new games row
+    and persist a `card_draw` system event for auditing. It will not delete any prior
+    events or eliminated_cards for other game ids.
     """
-    data = request.get_json(silent=True) or {}
-    requested = data.get('game_id')
-    game_id, chosen = create_game(requested)
-    # notify clients a new game exists (emit to the new game's room)
-    socketio.emit('new_game', {'game_id': game_id, 'chosen_card': chosen}, to=f"game:{game_id}")
-    return jsonify({'status': 'ok', 'game_id': game_id, 'chosen_card': chosen})
+    # If no id requested, generate a unique id
+    conn = get_db_conn()
+    cur = conn.cursor()
+    if game_id is None:
+        # generate a random uuid hex; it's practically unique so no need to loop
+        game_id = uuid.uuid4().hex
 
+    # If a caller provided a game_id that already exists, fail to avoid accidental overwrite.
+    cur.execute("SELECT 1 FROM games WHERE id = ?", (game_id,))
+    if cur.fetchone() is not None:
+        conn.close()
+        raise ValueError(f"game_id '{game_id}' already exists")
 
-# (submit_note removed)
+    chosen_card = random.choice(CARDS)["id"]
+    # Insert a new games row. Do NOT delete prior events or eliminated_cards for any game id.
+    cur.execute(
+        "INSERT INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
+        (game_id, datetime.datetime.now().isoformat(), chosen_card),
+    )
+    conn.commit()
+    conn.close()
 
-
-@app.route("/game_status")
-def game_status():
-    """Return current game status for moderator polling"""
-    game_id = request.args.get('game_id', 'default')
-    eliminated = get_eliminated_for_game(game_id)
-    return jsonify({
-        "eliminated_count": len(eliminated),
-        "last_update": LAST_UPDATE
-    })
-
-
-@app.route('/debug_emit')
-def debug_emit():
-    """Emit a test chat message to all clients and log it (development helper)."""
-    payload = {'role': 'system', 'action': 'debug', 'text': 'debug ping from server', 'game_id': 'default'}
-    log_turn(payload)
-    socketio.emit('chat', payload, to="game:default")
-    return jsonify({'status': 'ok', 'sent': payload})
-
+    # Log the card draw as a system event so the chosen card is recorded in the DB.
+    # The client UI intentionally hides system messages (role=='system'), so this will
+    # not appear in the chat transcript visible to users, but remains in the audit log.
+    try:
+        log_turn({"role": "system", "action": "card_draw", "card": chosen_card, "game_id": game_id})
+    except Exception as e:
+        print(f"DEBUG: failed to log card_draw for game {game_id}: {e}")
+    return game_id, chosen_card
 
 @app.route('/transcript')
 def transcript():
