@@ -1,12 +1,21 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <title>Moderator</title>
+    <meta charset="UTF-8">
+    <title>Moderator View</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
     <style>
         body {
             margin: 10px;
             font-family: Arial, sans-serif;
+            background-color: #fafafa;
+        }
+
+        h2,
+        h3 {
+            margin: 0.5em 0;
         }
 
         .iframe-container {
@@ -15,93 +24,152 @@
             margin-bottom: 20px;
         }
 
-        /* Prevent clicking inside iframes */
         iframe {
-            pointer-events: none;
             border: 2px solid #333;
-            border-radius: 5px;
+            border-radius: 6px;
             flex: 1;
+            height: 600px;
+            background: white;
         }
 
-        .note-section {
-            margin-top: 20px;
+        .chat-section {
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 6px;
+            background: white;
+            margin-top: 15px;
         }
 
-        textarea {
-            width: 100%;
-            height: 80px;
-            margin-bottom: 10px;
+        #transcript {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 8px;
+            background: #fff;
+            margin-top: 10px;
+        }
+
+        input[type="text"] {
+            width: 70%;
+            padding: 5px;
+        }
+
+        button {
+            padding: 5px 10px;
+            margin-left: 5px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #ddd;
+        }
+
+        #header-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1em;
+        }
+
+        .game-info {
+            font-weight: bold;
+            color: #333;
         }
     </style>
 </head>
 
 <body>
-    <h2>Moderator View</h2>
+    <div id="header-controls">
+        <h2>Moderator View</h2>
+        <div>
+            <span class="game-info">Game ID: <span id="game-id-display"></span></span>
+            <button id="new-game-btn">New Game</button>
+        </div>
+    </div>
 
+    <!-- Player views -->
     <div class="iframe-container">
         <div style="flex: 1;">
             <h3>Player 1 (Secret Card)</h3>
-            <iframe src="/player1" width="100%" height="1000" title="Player 1 View - Secret Card Holder"></iframe>
+            <iframe id="p1frame" title="Player 1 View"></iframe>
         </div>
         <div style="flex: 1;">
             <h3>Player 2 (Guesser)</h3>
-            <iframe src="/player2" width="100%" height="1000" title="Player 2 View - Card Grid and Questions"></iframe>
+            <iframe id="p2frame" title="Player 2 View"></iframe>
         </div>
     </div>
 
-    <!-- Research notes removed (unused) -->
-
+    <!-- Transcript -->
     <h3>Transcript</h3>
-    <div class="transcript" style="height:200px;overflow:auto;border:1px solid #ccc;padding:8px;margin-top:10px;"></div>
+    <div id="transcript"></div>
 
-    <div style="margin-top:10px;">
-        <input type="text" id="chat-input" placeholder="Send a message to all participants" style="width:70%;"> 
-        <button onclick="sendChat('moderator')">Send</button>
+    <!-- Chat -->
+    <div class="chat-section">
+        <input type="text" id="chat-input" placeholder="Send a message to all participants">
+        <button id="send-chat">Send</button>
     </div>
 
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script>
-        let lastUpdateCheck = 0;
-        
-        // Check for updates every 2 seconds, but only refresh if needed
-        setInterval(function() {
-            // Check if there are new eliminations by polling a status endpoint
-            fetch('/game_status')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.last_update > lastUpdateCheck) {
-                        // Only refresh Player 2 iframe (where eliminations happen)
-                        const player2Frame = document.querySelector('iframe[title="Player 2 View - Card Grid and Questions"]');
-                        if (player2Frame) {
-                            const currentSrc = player2Frame.src.split('?')[0];
-                            player2Frame.src = currentSrc + '?t=' + new Date().getTime();
-                        }
-                        lastUpdateCheck = data.last_update;
-                    }
-                })
-                .catch(err => console.log('Status check failed:', err));
-        }, 2000); // Check every 2 seconds
-    </script>
-    <script>
-        // If we have a socket available (top-level page), listen for new_game events
-        try {
-            if (typeof socket !== 'undefined') {
-                socket.on('new_game', function(data) {
-                    console.log('new_game received', data);
-                    const reloadFrame = (selector) => {
-                        const f = document.querySelector(selector);
-                        if (!f) return;
-                        const base = f.src.split('?')[0];
-                        f.src = base + '?t=' + Date.now();
-                    };
-                    reloadFrame('iframe[title="Player 1 View - Secret Card Holder"]');
-                    reloadFrame('iframe[title="Player 2 View - Card Grid and Questions"]');
-                });
-            }
-        } catch (e) {
-            // ignore if socket is not present
+        // --- Setup -----------------------------------------------------
+        const urlParams = new URLSearchParams(window.location.search);
+        let gameId = urlParams.get("game_id") || "default";
+        document.getElementById("game-id-display").textContent = gameId;
+
+        // Inject game_id into iframes
+        const setIframeSources = () => {
+            document.getElementById("p1frame").src = `/player1?game_id=${gameId}`;
+            document.getElementById("p2frame").src = `/player2?game_id=${gameId}`;
+        };
+        setIframeSources();
+
+        const socket = io();
+        socket.emit("join", {game_id: gameId, role: "moderator"});
+
+        // --- Chat + Transcript -----------------------------------------
+        const transcriptDiv = document.getElementById("transcript");
+        const chatInput = document.getElementById("chat-input");
+
+        function appendMessage(msg, style = "") {
+            const div = document.createElement("div");
+            div.innerHTML = msg;
+            if (style) div.style = style;
+            transcriptDiv.appendChild(div);
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
         }
+
+        document.getElementById("send-chat").onclick = () => {
+            const text = chatInput.value.trim();
+            if (!text) return;
+            socket.emit("chat", {game_id: gameId, role: "moderator", text});
+            chatInput.value = "";
+        };
+
+        socket.on("chat", data => {
+            appendMessage(`<b>${data.role}:</b> ${data.text}`);
+        });
+
+        socket.on("system", data => {
+            appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;");
+        });
+
+        socket.on("eliminate", data => {
+            appendMessage(`<em>Eliminated cards: ${data.eliminated.join(", ")}</em>`, "color:red;");
+        });
+
+        // --- Create New Game -------------------------------------------
+        document.getElementById("new-game-btn").onclick = async () => {
+            const res = await fetch("/create_game", {method: "POST"});
+            const data = await res.json();
+            if (data.status === "ok") {
+                gameId = data.game_id;
+                document.getElementById("game-id-display").textContent = gameId;
+                appendMessage(`<b>New game created:</b> ${gameId}`, "color:green;");
+                setIframeSources();
+                socket.emit("join", {game_id: gameId, role: "moderator"});
+            }
+        };
     </script>
 </body>
 
