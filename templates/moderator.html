@@ -83,6 +83,26 @@
                 .catch(err => console.log('Status check failed:', err));
         }, 2000); // Check every 2 seconds
     </script>
+    <script>
+        // If we have a socket available (top-level page), listen for new_game events
+        try {
+            if (typeof socket !== 'undefined') {
+                socket.on('new_game', function(data) {
+                    console.log('new_game received', data);
+                    const reloadFrame = (selector) => {
+                        const f = document.querySelector(selector);
+                        if (!f) return;
+                        const base = f.src.split('?')[0];
+                        f.src = base + '?t=' + Date.now();
+                    };
+                    reloadFrame('iframe[title="Player 1 View - Secret Card Holder"]');
+                    reloadFrame('iframe[title="Player 2 View - Card Grid and Questions"]');
+                });
+            }
+        } catch (e) {
+            // ignore if socket is not present
+        }
+    </script>
 </body>
 
 </html>
