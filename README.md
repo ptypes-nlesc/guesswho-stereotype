@@ -2,16 +2,19 @@
 
 <img src="static/logo.png" alt="GuessWho Stereotype Research Game Logo" width="200">
 
-A research web-application version of the “Guess Who?” game used to study how players express stereotypes indirectly — here through character elimination rather than explicit discussion.  
+An interactive web application inspired by the classic “Guess Who?” game, designed to explore how people express social and cultural stereotypes indirectly.
+Instead of discussing stereotypes explicitly, players reveal their reasoning through the process of asking yes/no questions and eliminating characters — while a moderator observes and records both choices and dialogue for analysis.
+
+The game is built with Flask and Socket.IO for real-time interaction between players and moderator. Audio is captured via WebRTC, and all game events — including card selections, eliminations, and timing — are logged for later study. Each session can be initiated by a moderator, who creates a new game and shares unique links with Player 1 and Player 2.
 
 ---
 
-## ✨ Features (Minimum Viable Product)
+## ✨ Features 
 
 - 🧑‍🎓 **Player 1** – sees one *secret* card and answers yes/no questions  
-- 🧑‍🚀 **Player 2** – sees all 12 cards, asks questions, and eliminates cards  
-- 🧑‍⚖️ **Moderator** – observes both players in real time, logs notes, and can start new games  
-- 💬 **Real-time communication** via Socket.IO  
+- 🧑‍🚀 **Player 2** – sees all character cards, asks questions, and eliminates options based on the answers
+- 🧑‍⚖️ **Moderator** – monitors both players in real time, takes notes, and can start or reset games.
+- 💬 **Real-time communication** powered by Socket.IO (synchronized questions, answers, and eliminations).
 - 🗃️ **SQLite logging** of all events (chat, eliminations, system messages)  
 - 🔒 Each game isolated by a unique `game_id` (separate Socket.IO room)
 
@@ -72,3 +75,12 @@ Moderator:
 ```
 http://127.0.0.1:5000/moderator?game_id=<game_id>
 ```
+
+## Data and Logging
+Every game session generates structured logs for later analysis of player behavior and interaction patterns.
+
+- Event logs are stored in db/games.db and include: Game metadata (game_id, timestamps, players), Card elimination sequence, Questions and responses (yes/no), Moderator notes and system messages
+
+- Audio recordings (planned) will be captured from each participant via WebRTC and stored per session as .webm files.
+
+- Logs can be exported or analyzed externally (e.g., in Python, R, or SQL) to study how stereotypes are expressed implicitly through gameplay.
