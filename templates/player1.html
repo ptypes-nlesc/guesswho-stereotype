@@ -1,29 +1,131 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <title>Player 1</title>
+    <meta charset="UTF-8">
+    <title>Player 1 – Secret Card</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #fafafa;
+            color: #222;
+        }
+
+        h2 {
+            margin-bottom: 0.2em;
+        }
+
+        #game-info {
+            font-size: 0.9em;
+            color: #555;
+            margin-bottom: 1em;
+        }
+
+        .secret-card {
+            text-align: center;
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 10px;
+            background: white;
+            width: 240px;
+            margin-bottom: 1em;
+        }
+
+        .secret-card img {
+            width: 100%;
+            border-radius: 5px;
+        }
+
+        #transcript {
+            border: 1px solid #ccc;
+            height: 150px;
+            overflow-y: auto;
+            padding: 8px;
+            background: #fff;
+            margin-top: 10px;
+        }
+
+        input[type="text"] {
+            width: 70%;
+            padding: 5px;
+        }
+
+        button {
+            padding: 6px 10px;
+            margin-left: 5px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #ddd;
+        }
+    </style>
 </head>
 
 <body>
-    <h2>Player 1</h2>
-    <div id="card">
+    <h2>Player 1 – Secret Card</h2>
+    <div id="game-info"></div>
+
+    <div class="secret-card">
         <img src="{{ url_for('static', filename='cards/' + card.id|string + '.png') }}" alt="{{ card.name }}"
             class="secret-card-image">
-        <p><strong>Your Secret Card</strong></p>
+        <p><strong>Your Secret Card:</strong> {{ card.name }}</p>
     </div>
-    <!-- answer buttons removed (unused) -->
 
     <h3>Transcript</h3>
-    <div class="transcript" style="height:120px;overflow:auto;border:1px solid #ccc;padding:8px;"></div>
+    <div id="transcript"></div>
 
     <div style="margin-top:10px;">
-        <input type="text" id="chat-input" placeholder="Send a message to all participants" style="width:70%;">
-        <button onclick="sendChat('player1')">Send</button>
+        <input type="text" id="chat-input" placeholder="Send a message to all participants">
+        <button id="send-btn">Send</button>
     </div>
 
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        // --- Setup -----------------------------------------------------
+        const gameId = new URLSearchParams(window.location.search).get('game_id') || 'default';
+        const gameInfo = document.getElementById('game-info');
+        const transcriptDiv = document.getElementById('transcript');
+        const chatInput = document.getElementById('chat-input');
+
+        gameInfo.textContent = `Game ID: ${gameId}`;
+
+        const socket = io();
+        socket.emit('join', {game_id: gameId, role: 'player1'});
+
+        // --- Chat sending ----------------------------------------------
+        document.getElementById('send-btn').onclick = () => {
+            const text = chatInput.value.trim();
+            if (!text) return;
+            socket.emit('chat', {game_id: gameId, role: 'player1', text});
+            chatInput.value = '';
+        };
+
+        // --- Helper to add transcript lines -----------------------------
+        function appendMessage(msg, style = '') {
+            const div = document.createElement('div');
+            div.innerHTML = msg;
+            if (style) div.style = style;
+            transcriptDiv.appendChild(div);
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        }
+
+        // --- Incoming messages ------------------------------------------
+        socket.on('chat', data => {
+            appendMessage(`<b>${data.role}:</b> ${data.text}`);
+        });
+
+        socket.on('system', data => {
+            appendMessage(`<em>${data.role || 'System'} joined game ${data.game_id}</em>`, 'color:gray;');
+        });
+
+        socket.on('eliminate', data => {
+            appendMessage(`<em>Player 2 eliminated card ${data.card}</em>`, 'color:red;');
+        });
+    </script>
 </body>
 
 </html>
