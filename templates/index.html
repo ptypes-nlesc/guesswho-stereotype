@@ -54,6 +54,11 @@
             background-color: #1f5490;
         }
 
+        .logo {
+            width: 120px;
+            margin-bottom: 15px;
+        }
+
         .footer {
             margin-top: 20px;
             font-size: 12px;
@@ -64,15 +69,18 @@
 
 <body>
     <div class="login-box">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="GuessWho Logo" class="logo">
         <h2>Moderator Login</h2>
+
+        {% if error %}
+        <p style="color: red;">Invalid password. Please try again.</p>
+        {% endif %}
+
         <form method="POST" action="/login">
             <input type="password" name="password" placeholder="Enter moderator password" required>
             <button type="submit">Login</button>
         </form>
-        <div class="footer">
-            <p>GuessWho Stereotype</p>
-        </div>
-    </div>
-</body>
 
-</html>
+        <div class="footer">
+            <p>GuessWho Stereotype – Research Edition</p>
+        </div
