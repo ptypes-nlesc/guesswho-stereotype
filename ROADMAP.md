@@ -21,8 +21,8 @@ The focus is on improving interactivity, data collection, and research usability
 **Goal:** Improve user experience and ensure robust data capture.
 
 - [ ] Improve card layout and responsive design  
-- [ ] Add moderator note-taking panel  
-- [ ] Include timestamps and sequence tracking in logs  
+- [x] Add index page with login for moderator
+- [x] Add moderator dashboard  
 - [ ] Enable export of game data as `.csv` or `.json`  
 - [ ] Add visual feedback for card eliminations  
 
@@ -42,7 +42,6 @@ The focus is on improving interactivity, data collection, and research usability
 **Goal:** Prepare the application for real studies and collaborative use.
 
 - [ ] Authentication for moderator dashboard  
-- [ ] Multi-session game management  
 - [ ] Deployment to a web server (HTTPS + SSL)  
 - [ ] Documentation for researchers and developers  
 - [ ] Add test suite (pytest + Playwright for UI)  
