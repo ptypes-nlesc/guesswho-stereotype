@@ -4,7 +4,7 @@ import os
 import random
 import sqlite3
 import uuid
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for
 from flask_socketio import SocketIO, join_room
 
 # ---------------------------------------------------------------------
@@ -13,8 +13,9 @@ from flask_socketio import SocketIO, join_room
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-LOG_FILE = "data/game_log.json"
 DB_PATH = "db/games.db"
+app.secret_key = os.getenv("SECRET_KEY", "change_this_to_something_secret")
+MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD", "research123")
 
 # 12 cards total
 CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
@@ -164,10 +165,33 @@ def log_turn(entry):
 # ---------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
-    """Landing page (can later show 'create game' button)."""
+    """Landing page with moderator login."""
     return render_template("index.html")
+
+
+@app.route("/login", methods=["POST"])
+def login():
+    """Simple moderator login."""
+    pwd = request.form.get("password")
+    if pwd == MODERATOR_PASSWORD:
+        session["moderator"] = True
+        return redirect(url_for("moderator_dashboard"))
+    return "Access denied", 403
+
+@app.route("/logout")
+def logout():
+    """Clear moderator session and return to login page."""
+    session.clear()
+    return redirect(url_for("index"))
+
+@app.route("/moderator_dashboard")
+def moderator_dashboard():
+    """Moderator dashboard to start games."""
+    if not session.get("moderator"):
+        return redirect("/")
+    return render_template("moderator_dashboard.html")
 
 
 @app.route("/player1")
