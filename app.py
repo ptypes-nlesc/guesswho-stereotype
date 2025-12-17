@@ -1,23 +1,33 @@
 import datetime
-import json
 import os
 import random
 import sqlite3
 import uuid
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for
+from flask import (
+    Flask,
+    jsonify,
+    render_template,
+    request,
+    session,
+    redirect,
+    url_for,
+)
 from flask_socketio import SocketIO, join_room
 
 # ---------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------
 app = Flask(__name__)
+app.config.update(
+    SECRET_KEY=os.getenv("SECRET_KEY", "change_this_to_something_secret"),
+    TEMPLATES_AUTO_RELOAD=True,
+)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 DB_PATH = "db/games.db"
-app.secret_key = os.getenv("SECRET_KEY", "change_this_to_something_secret")
 MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD", "research123")
 
-# 12 cards total
+# Card catalog (12 cards)
 CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
 
 
@@ -25,6 +35,7 @@ CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
 # Database utilities
 # ---------------------------------------------------------------------
 def get_db_conn():
+    """Open SQLite connection, creating folder if needed."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -32,17 +43,20 @@ def get_db_conn():
 
 
 def init_db():
-    """Ensure tables exist before game starts."""
+    """Ensure all tables exist before running the app."""
     with get_db_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("""
+        c = conn.cursor()
+        c.execute(
+            """
             CREATE TABLE IF NOT EXISTS games (
                 id TEXT PRIMARY KEY,
                 created_at TEXT,
                 chosen_card INTEGER
             )
-        """)
-        cur.execute("""
+            """
+        )
+        c.execute(
+            """
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 game_id TEXT,
@@ -52,152 +66,153 @@ def init_db():
                 card INTEGER,
                 timestamp TEXT
             )
-        """)
-        cur.execute("""
+            """
+        )
+        c.execute(
+            """
             CREATE TABLE IF NOT EXISTS eliminated_cards (
                 game_id TEXT,
                 card_id INTEGER,
                 eliminated_at TEXT,
-                PRIMARY KEY(game_id, card_id)
+                PRIMARY KEY (game_id, card_id)
             )
-        """)
+            """
+        )
         conn.commit()
 
 
-def db_log_event(entry):
-    """Insert a structured event into the database."""
+def log_event(entry):
+    """Insert structured event into DB."""
     game_id = entry.get("game_id", "default")
     role = entry.get("role", "unknown")
-    action = entry.get("action")
-    text = (
-        entry.get("text")
-        or entry.get("note")
-        or entry.get("question")
-        or entry.get("answer")
-    )
-    card = None
-
-    if "card" in entry:
-        try:
-            card = int(entry.get("card"))
-        except Exception:
-            pass
-
-    # Skip transient UI-only events
-    if action in ("question", "answer", "note"):
-        print(f"DEBUG: skipped transient action={action} for game={game_id}")
-        return
+    action = entry.get("action", "")
+    text = entry.get("text") or ""
+    card = entry.get("card")
 
     with get_db_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
+        c = conn.cursor()
+        c.execute(
             "INSERT INTO events (game_id, role, action, text, card, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-            (game_id, role, action, text, card, entry.get("timestamp")),
+            (
+                game_id,
+                role,
+                action,
+                text,
+                card,
+                entry.get("timestamp") or datetime.datetime.now().isoformat(),
+            ),
         )
 
-        # Record eliminated cards separately for tracking
+        # Track eliminated cards
         if action == "eliminate" and card is not None:
-            cur.execute(
-                "INSERT OR REPLACE INTO eliminated_cards (game_id, card_id, eliminated_at) VALUES (?, ?, ?)",
-                (game_id, card, entry.get("timestamp")),
+            c.execute(
+                """
+                INSERT OR REPLACE INTO eliminated_cards (game_id, card_id, eliminated_at)
+                VALUES (?, ?, ?)
+                """,
+                (game_id, card, datetime.datetime.now().isoformat()),
             )
         conn.commit()
 
 
-def get_transcript_from_db(game_id, limit=200):
+def get_eliminated_cards(game_id):
     with get_db_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM events WHERE game_id = ? ORDER BY id DESC LIMIT ?",
-            (game_id, limit),
-        )
-        rows = cur.fetchall()
-        return [dict(r) for r in reversed(rows)]
-
-
-def get_eliminated_for_game(game_id):
-    with get_db_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT card_id FROM eliminated_cards WHERE game_id = ?", (game_id,)
-        )
-        return {r[0] for r in cur.fetchall()}
+        c = conn.cursor()
+        c.execute("SELECT card_id FROM eliminated_cards WHERE game_id = ?", (game_id,))
+        return {row[0] for row in c.fetchall()}
 
 
 def get_chosen_card(game_id):
     with get_db_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT chosen_card FROM games WHERE id = ?", (game_id,))
-        row = cur.fetchone()
+        c = conn.cursor()
+        c.execute("SELECT chosen_card FROM games WHERE id = ?", (game_id,))
+        row = c.fetchone()
         return row[0] if row else None
 
 
+def get_transcript(game_id, limit=200):
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT * FROM events WHERE game_id = ? ORDER BY id DESC LIMIT ?",
+            (game_id, limit),
+        )
+        return [dict(r) for r in reversed(c.fetchall())]
+
+
 # ---------------------------------------------------------------------
-# Initialize DB + default game
+# Initialize DB and default game
 # ---------------------------------------------------------------------
 init_db()
-_default_game_id = uuid.uuid4().hex
+DEFAULT_GAME_ID = uuid.uuid4().hex
 with get_db_conn() as conn:
-    cur = conn.cursor()
-    cur.execute(
+    c = conn.cursor()
+    c.execute(
         "INSERT OR REPLACE INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
         (
-            _default_game_id,
+            DEFAULT_GAME_ID,
             datetime.datetime.now().isoformat(),
             random.choice(CARDS)["id"],
         ),
     )
     conn.commit()
-LAST_UPDATE = 0
 
 
 # ---------------------------------------------------------------------
-# Helpers
+# Helper
 # ---------------------------------------------------------------------
-def log_turn(entry):
-    entry["timestamp"] = datetime.datetime.now().isoformat()
+def record_event(role, action, game_id, text=None, card=None):
+    entry = {
+        "role": role,
+        "action": action,
+        "text": text,
+        "card": card,
+        "game_id": game_id,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
     try:
-        db_log_event(entry)
+        log_event(entry)
     except Exception as e:
-        print(f"DEBUG: DB log failed: {e}")
+        print(f"⚠️ DB log failed: {e}")
 
 
 # ---------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------
-@app.route("/", methods=["GET"])
+@app.route("/")
 def index():
-    """Landing page with moderator login."""
+    """Moderator login page."""
     return render_template("index.html")
 
 
 @app.route("/login", methods=["POST"])
 def login():
     """Simple moderator login."""
-    pwd = request.form.get("password")
-    if pwd == MODERATOR_PASSWORD:
+    if request.form.get("password") == MODERATOR_PASSWORD:
         session["moderator"] = True
-        return redirect(url_for("moderator_dashboard"))
-    return "Access denied", 403
+        return redirect(url_for("dashboard"))
+    return render_template("index.html", error=True)
+
 
 @app.route("/logout")
 def logout():
-    """Clear moderator session and return to login page."""
+    """Clear session and return to login."""
     session.clear()
     return redirect(url_for("index"))
 
-@app.route("/moderator_dashboard")
-def moderator_dashboard():
-    """Moderator dashboard to start games."""
+
+@app.route("/dashboard")
+def dashboard():
+    """Moderator dashboard."""
     if not session.get("moderator"):
-        return redirect("/")
-    return render_template("moderator_dashboard.html")
+        return redirect(url_for("index"))
+    return render_template("dashboard.html")
 
 
 @app.route("/player1")
 def player1():
-    """Player 1 (secret card)."""
-    game_id = request.args.get("game_id", _default_game_id)
+    """Player 1 – secret card view."""
+    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
     chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
     return render_template(
         "player1.html", card={"id": chosen, "name": f"Card {chosen}"}, game_id=game_id
@@ -206,9 +221,9 @@ def player1():
 
 @app.route("/player2")
 def player2():
-    """Player 2 (guesser)."""
-    game_id = request.args.get("game_id", _default_game_id)
-    eliminated = get_eliminated_for_game(game_id)
+    """Player 2 – guesser grid view."""
+    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    eliminated = get_eliminated_cards(game_id)
     return render_template(
         "player2.html", cards=CARDS, eliminated=eliminated, game_id=game_id
     )
@@ -216,69 +231,47 @@ def player2():
 
 @app.route("/moderator")
 def moderator():
-    """Moderator view (sees both players)."""
-    game_id = request.args.get("game_id", _default_game_id)
+    """Moderator live view."""
+    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
     return render_template("moderator.html", game_id=game_id)
 
 
-# ---------------------------------------------------------------------
-# Create new game (API)
-# ---------------------------------------------------------------------
 @app.route("/create_game", methods=["POST"])
 def create_game():
-    """Create a new unique game and return ID + chosen card."""
+    """Create a new game and return its ID."""
     game_id = uuid.uuid4().hex
     chosen_card = random.choice(CARDS)["id"]
 
     with get_db_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
+        c = conn.cursor()
+        c.execute(
             "INSERT INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
             (game_id, datetime.datetime.now().isoformat(), chosen_card),
         )
         conn.commit()
 
-    log_turn(
-        {
-            "role": "system",
-            "action": "card_draw",
-            "card": chosen_card,
-            "game_id": game_id,
-        }
-    )
-    print(f"DEBUG: new game created {game_id} with card {chosen_card}")
+    record_event("system", "card_draw", game_id, card=chosen_card)
+    print(f"🎲 Created new game {game_id} with card {chosen_card}")
     return jsonify({"status": "ok", "game_id": game_id, "chosen_card": chosen_card})
 
 
-# ---------------------------------------------------------------------
-# Eliminate card (Player2 action)
-# ---------------------------------------------------------------------
 @app.route("/eliminate_card", methods=["POST"])
 def eliminate_card():
-    global LAST_UPDATE
+    """Player 2 eliminates a card."""
     data = request.get_json(silent=True) or {}
     card_id = data.get("card_id")
-    game_id = data.get("game_id", _default_game_id)
-
+    game_id = data.get("game_id", DEFAULT_GAME_ID)
     if not card_id:
         return jsonify({"status": "error", "message": "card_id required"}), 400
 
-    LAST_UPDATE = datetime.datetime.now().timestamp()
-    payload = {
-        "role": "player2",
-        "action": "eliminate",
-        "card": card_id,
-        "game_id": game_id,
-    }
-    log_turn(payload)
-
-    eliminated = get_eliminated_for_game(game_id)
+    record_event("player2", "eliminate", game_id, card=card_id)
+    eliminated = get_eliminated_cards(game_id)
     socketio.emit(
         "eliminate",
         {"card": int(card_id), "eliminated": list(eliminated)},
         to=f"game:{game_id}",
     )
-    print(f"DEBUG: eliminated card {card_id} for game {game_id}")
+    print(f"🗑️  Game {game_id}: card {card_id} eliminated")
     return jsonify({"status": "ok"})
 
 
@@ -287,47 +280,45 @@ def eliminate_card():
 # ---------------------------------------------------------------------
 @socketio.on("join")
 def handle_join(data):
-    """Client joins a specific game room."""
-    game_id = data.get("game_id", _default_game_id)
+    """Clients join a shared room by game ID."""
+    game_id = data.get("game_id", DEFAULT_GAME_ID)
     role = data.get("role", "unknown")
     room = f"game:{game_id}"
     join_room(room)
-    print(f"DEBUG: {role} joined {room}")
+    record_event(role, "join", game_id)
     socketio.emit(
         "system", {"action": "join", "role": role, "game_id": game_id}, to=room
     )
+    print(f"👥 {role} joined room {room}")
 
 
 @socketio.on("chat")
 def handle_chat(data):
-    """Handle chat messages between roles."""
-    game_id = data.get("game_id", _default_game_id)
-    room = f"game:{game_id}"
-    payload = {
-        "role": data.get("role", "unknown"),
-        "action": "chat",
-        "text": data.get("text", ""),
-        "game_id": game_id,
-    }
-    log_turn(payload)
-    socketio.emit("chat", payload, to=room)
-    print(f"DEBUG: chat from {payload['role']} in {room}: {payload['text']}")
+    """Chat messages between participants."""
+    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    role = data.get("role", "unknown")
+    text = data.get("text", "")
+    record_event(role, "chat", game_id, text=text)
+    socketio.emit(
+        "chat", {"role": role, "text": text, "game_id": game_id}, to=f"game:{game_id}"
+    )
+    print(f"💬 {role}@{game_id}: {text}")
 
 
 # ---------------------------------------------------------------------
-# Transcript (API)
+# API: Transcript
 # ---------------------------------------------------------------------
 @app.route("/transcript")
 def transcript():
-    game_id = request.args.get("game_id", _default_game_id)
+    """Return all logged events for a game."""
+    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
     limit = int(request.args.get("limit", "200"))
-    result = get_transcript_from_db(game_id, limit)
-    return jsonify(result)
+    return jsonify(get_transcript(game_id, limit))
 
 
 # ---------------------------------------------------------------------
 # Main entry
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
-    os.makedirs("data", exist_ok=True)
-    socketio.run(app, debug=True, use_reloader=False)
+    os.makedirs("db", exist_ok=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, use_reloader=False)

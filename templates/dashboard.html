@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Moderator Dashboard – GuessWho Stereotype</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <header>
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="height:80px;">
+    </header>
+
+    <main class="dashboard-main">
+        <h2>Moderator Dashboard</h2>
+        <p>Click below to start a new game session.</p>
+
+        <button id="start-btn" class="primary-btn">🎲 Start New Game</button>
+
+        <div id="links" class="dashboard-links"></div>
+
+        <div class="footer">
+            <p>You are logged in as <strong>Moderator</strong>.</p>
+            <form action="/logout" method="get">
+                <button type="submit">🔒 Logout</button>
+            </form>
+        </div>
+    </main>
+
+    <script>
+        document.getElementById('start-btn').onclick = async () => {
+            const res = await fetch('/create_game', {method: 'POST'});
+            const data = await res.json();
+            if (data.status === 'ok') {
+                const gid = data.game_id;
+                document.getElementById('links').innerHTML = `
+                    <h3>🆕 New Game Created</h3>
+                    <p><b>Game ID:</b> <span class="game-id">${gid}</span></p>
+                    <div class="link-group">
+                        <a class="link-btn" href="/player1?game_id=${gid}" target="_blank">🎭 Open Player 1 (Secret Card)</a>
+                        <a class="link-btn" href="/player2?game_id=${gid}" target="_blank">🔍 Open Player 2 (Guesser)</a>
+                        <a class="link-btn" href="/moderator?game_id=${gid}" target="_blank">🖥️ Open Moderator View (Live)</a>
+                    </div>
+                `;
+            } else {
+                alert('Failed to create game.');
+            }
+        };
+    </script>
+</body>
+
+</html>

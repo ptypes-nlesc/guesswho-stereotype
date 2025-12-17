@@ -5,3 +5,4 @@ venv/
 .pytest_cache/
 data/game_log.json
 nohup.out
+db/games.db
