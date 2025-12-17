@@ -6,7 +6,6 @@ The focus is on improving interactivity, data collection, and research usability
 ---
 
 ## ✅ Phase 1 – Core Functionality (MVP)
-**Goal:** Enable playable, data-logged prototype.
 
 - [x] Flask backend with `/create_game` endpoint  
 - [x] Player and Moderator interfaces  
@@ -18,28 +17,32 @@ The focus is on improving interactivity, data collection, and research usability
 ---
 
 ## 🧪 Phase 2 – Usability & Data Quality
-**Goal:** Improve user experience and ensure robust data capture.
 
-- [ ] Improve card layout and responsive design  
+- [x] Improve card layout and responsive design  
 - [x] Add index page with login for moderator
 - [x] Add moderator dashboard  
 - [ ] Enable export of game data as `.csv` or `.json`  
-- [ ] Add visual feedback for card eliminations  
 
 ---
 
-## 🚧 Phase 3 – Audio Integration
-**Goal:** Record and synchronize spoken dialogue with in-game actions.
+## 🚧 Phase 3 – Audio Capture & Voice Communication
+### Data capture
 
-- [ ] Integrate WebRTC for real-time voice chat  
-- [ ] Use MediaRecorder API for local audio capture  
-- [ ] Upload `.webm` files to server per participant  
-- [ ] Sync audio timeline with elimination log  
+- [ ] Record participant audio locally in the browser using the MediaRecorder API
+- [ ] Upload one .webm audio file per participant per game to the server
+- [ ] Store audio metadata (game_id, role, start/end timestamps)
+- [ ] Align audio timelines with logged game events (questions, answers, eliminations)
 
+### Real-time voice communication
+
+- [ ] Integrate WebRTC to enable low-latency voice communication between participants
+- [ ] Use existing Socket.IO infrastructure for WebRTC signaling (offer/answer, ICE candidates)
+- [ ] Support direct peer-to-peer audio streams (no server-side mixing)                                
+- [ ] Configure STUN (and optional TURN) servers to support NAT traversal
+- [ ] Maintain MediaRecorder-based audio capture in parallel for analysis (WebRTC does not replace recording)
 ---
 
 ## 🚀 Phase 4 – Deployment & Collaboration
-**Goal:** Prepare the application for real studies and collaborative use.
 
 - [ ] Authentication for moderator dashboard  
 - [ ] Deployment to a web server (HTTPS + SSL)  
@@ -49,4 +52,4 @@ The focus is on improving interactivity, data collection, and research usability
 ---
 
 ### 🗓️ Last Updated
-October 2025
+December 2025
