@@ -1,14 +1,11 @@
-# 🎲 GuessWho-Stereotype
 ![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-2.x-lightgrey?logo=flask)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-Realtime--Communication-green?logo=socketdotio)
 ![License](https://img.shields.io/badge/License-Apache%202.0-orange)
 
-
-
 <img src="static/logo.png" alt="GuessWho Stereotype Research Game Logo" width="200">
 
-An interactive web application inspired by the classic “Guess Who?” game, designed to explore how people express stereotypes. Instead of discussing stereotypes explicitly, players reveal their reasoning through the process of asking yes/no questions and eliminating characters — while a moderator observes and records both choices and dialogue for analysis.
+"XPOSED" is an interactive web application inspired by the classic “Guess Who?” game, designed to explore how people express stereotypes. Instead of discussing stereotypes explicitly, players reveal their reasoning through the process of asking yes/no questions and eliminating characters — while a moderator observes and records both choices and dialogue for analysis.
 
 
 ---
