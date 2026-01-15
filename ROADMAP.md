@@ -47,7 +47,7 @@ This roadmap outlines the current development milestones and future goals for th
 ---
 
 ## Phase 4 – Production Deployment & Security
-
+- [ ] Migrate from SQLite to PostgreSQL
 - [ ] Enable HTTPS with SSL certificates 
 - [ ] Set up reverse proxy (nginx) for production hosting
 - [ ] Require MODERATOR_PASSWORD environment variable (no hardcoded default)
