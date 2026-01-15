@@ -1,11 +1,10 @@
-# Project Roadmap – Guess Who Stereotype
+# Project Roadmap – Xposed
 
-This roadmap outlines the current development milestones and future goals for the *Guess Who Stereotype* web application.  
-The focus is on improving interactivity, data collection, and research usability.
+This roadmap outlines the current development milestones and future goals for the *Xposed* web application.  
 
 ---
 
-## ✅ Phase 1 – Core Functionality (MVP)
+## Phase 1 – Core Functionality (MVP)
 
 - [x] Flask backend with `/create_game` endpoint  
 - [x] Player and Moderator interfaces  
@@ -16,40 +15,61 @@ The focus is on improving interactivity, data collection, and research usability
 
 ---
 
-## 🧪 Phase 2 – Usability & Data Quality
+## Phase 2 – First Game Playable
 
+- [ ] Add win condition & final guess UI 
 - [x] Improve card layout and responsive design  
 - [x] Add index page with login for moderator
 - [x] Add moderator dashboard  
-- [ ] Enable export of game data as `.csv` or `.json`  
+- [ ] Pre-generate game IDs in advance for participant distribution 
+- [ ] Enable export of game data as `.csv` or `.json` 
 
 ---
 
-## 🚧 Phase 3 – Audio Capture & Voice Communication
-### Data capture
+## Phase 3 – Live Audio & Moderator-Controlled Recording 
 
-- [ ] Record participant audio locally in the browser using the MediaRecorder API
-- [ ] Upload one .webm audio file per participant per game to the server
-- [ ] Store audio metadata (game_id, role, start/end timestamps)
-- [ ] Align audio timelines with logged game events (questions, answers, eliminations)
+### Live Voice Communication
+- [ ] Add audio_events table to SQLite schema
+- [ ] Integrate WebRTC for 3-way peer-to-peer audio 
+- [ ] Use Socket.IO for WebRTC signaling 
 
-### Real-time voice communication
+### Moderator Recording Control
+- [ ] Add "Start/Stop Recording" buttons to moderator dashboard 
+- [ ] Broadcast `recording_start` / `recording_stop` socket events to all players 
 
-- [ ] Integrate WebRTC to enable low-latency voice communication between participants
-- [ ] Use existing Socket.IO infrastructure for WebRTC signaling (offer/answer, ICE candidates)
-- [ ] Support direct peer-to-peer audio streams (no server-side mixing)                                
-- [ ] Configure STUN (and optional TURN) servers to support NAT traversal
-- [ ] Maintain MediaRecorder-based audio capture in parallel for analysis (WebRTC does not replace recording)
+### Audio Capture & Storage
+- [ ] Implement MediaRecorder API on all player pages 
+- [ ] Auto-start capture when receiving `recording_start` event
+- [ ] Auto-stop capture when receiving `recording_stop` event
+- [ ] Save `.wav` files to `data/audio/{game_id}/{role}_{timestamp}.wav` 
+- [ ] Store recording metadata in database with synchronized timestamps
+
 ---
 
-## 🚀 Phase 4 – Deployment & Collaboration
+## Phase 4 – Production Deployment & Security
 
-- [ ] Authentication for moderator dashboard  
-- [ ] Deployment to a web server (HTTPS + SSL)  
-- [ ] Documentation for researchers and developers  
-- [ ] Add test suite (pytest + Playwright for UI)  
+- [ ] Enable HTTPS with SSL certificates 
+- [ ] Set up reverse proxy (nginx) for production hosting
+- [ ] Require MODERATOR_PASSWORD environment variable (no hardcoded default)
+- [ ] Add comprehensive input validation & error handling
+- [ ] Implement disconnect recovery & reconnection logic
+- [ ] Documentation for researchers and deployment instructions
+
+---
+
+## Phase 5 – Future Features
+
+- [ ] Automatic speech-to-text transcription (Whisper API)
+- [ ] Researcher analytics dashboard
+- [ ] Export analysis-ready datasets (events + audio + transcripts)
+- [ ] Add test suite (pytest + Playwright for UI)
+- [ ] Support multiple concurrent moderators
 
 ---
 
 ### 🗓️ Last Updated
-December 2025
+January 15, 2026
+
+
+
+
