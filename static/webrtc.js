@@ -16,6 +16,7 @@
     let localStream = null;
     let peers = {}; // {peer_id: RTCPeerConnection}
     let remoteStreams = {}; // {peer_id: MediaStream}
+    let pendingCandidates = {}; // {peer_id: RTCIceCandidate[]}
     const remoteStream = new MediaStream(); // Combined remote audio
 
     if (remoteAudioEl) {
@@ -80,6 +81,7 @@
       }
 
       peers[peerId] = pc;
+      if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
       return pc;
     }
 
@@ -101,6 +103,17 @@
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(description));
+        // Drain any ICE candidates received before remoteDescription was set
+        if (pendingCandidates[peerId] && pendingCandidates[peerId].length) {
+          for (const cand of pendingCandidates[peerId]) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch (e) {
+              console.warn(`Failed to add queued ICE candidate from ${peerId}:`, e);
+            }
+          }
+          pendingCandidates[peerId] = [];
+        }
         if (description.type === "offer") {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -132,9 +145,13 @@
         try {
           if (pc.remoteDescription) {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } else {
+            // Queue the candidate until remoteDescription is set
+            if (!pendingCandidates[fromId]) pendingCandidates[fromId] = [];
+            pendingCandidates[fromId].push(candidate);
           }
         } catch (err) {
-          console.error(`Failed to add ICE candidate from ${fromId}:`, err);
+          console.error(`Failed to process ICE candidate from ${fromId}:`, err);
         }
       }
     }
