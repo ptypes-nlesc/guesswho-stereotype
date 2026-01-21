@@ -33,6 +33,22 @@
       if (buttonEl) buttonEl.textContent = joined ? "Leave voice" : "Join voice";
     }
 
+    function removePeer(peerId) {
+      const pc = peers[peerId];
+      if (pc) {
+        try { pc.close(); } catch (_) {}
+      }
+      const stream = remoteStreams[peerId];
+      if (stream) {
+        stream.getTracks().forEach((t) => {
+          try { remoteStream.removeTrack(t); } catch (_) {}
+        });
+      }
+      delete peers[peerId];
+      delete remoteStreams[peerId];
+      updateStatus();
+    }
+
     function createPeerConnection(peerId) {
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -70,6 +86,19 @@
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState || "idle";
         console.log(`${peerId} connection state: ${state}`);
+        if (state === "failed" || state === "closed") {
+          removePeer(peerId);
+          return;
+        }
+        if (state === "disconnected") {
+          // Give it a short grace period to recover before removing
+          setTimeout(() => {
+            const current = pc.connectionState || "idle";
+            if (current === "disconnected" || current === "failed" || current === "closed") {
+              removePeer(peerId);
+            }
+          }, 3000);
+        }
         updateStatus();
       };
 
@@ -215,6 +244,7 @@
       const peersList = data.peers || [];
       console.log("Received peers list:", peersList);
       for (const peer of peersList) {
+        if (peer.client_id === clientId) continue; // ignore self if present
         if (!peers[peer.client_id]) {
           const pc = createPeerConnection(peer.client_id);
           // Create offer to existing peer
