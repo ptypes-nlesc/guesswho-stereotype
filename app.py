@@ -30,6 +30,9 @@ MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD", "research123")
 # Card catalog (12 cards)
 CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
 
+# Track active voice participants per game: {game_id: {client_id: {role, socket_id}}}
+VOICE_PARTICIPANTS = {}
+
 
 # ---------------------------------------------------------------------
 # Database utilities
@@ -75,6 +78,21 @@ def init_db():
                 card_id INTEGER,
                 eliminated_at TEXT,
                 PRIMARY KEY (game_id, card_id)
+            )
+            """
+        )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audio_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT,
+                role TEXT,
+                start_time TEXT,
+                end_time TEXT,
+                duration_seconds REAL,
+                audio_path TEXT,
+                transcript TEXT,
+                timestamp TEXT
             )
             """
         )
@@ -173,7 +191,7 @@ def record_event(role, action, game_id, text=None, card=None):
     try:
         log_event(entry)
     except Exception as e:
-        print(f"⚠️ DB log failed: {e}")
+        print(f"DB log failed: {e}")
 
 
 # ---------------------------------------------------------------------
@@ -251,7 +269,7 @@ def create_game():
         conn.commit()
 
     record_event("system", "card_draw", game_id, card=chosen_card)
-    print(f"🎲 Created new game {game_id} with card {chosen_card}")
+    print(f"Created new game {game_id} with card {chosen_card}")
     return jsonify({"status": "ok", "game_id": game_id, "chosen_card": chosen_card})
 
 
@@ -271,7 +289,7 @@ def eliminate_card():
         {"card": int(card_id), "eliminated": list(eliminated)},
         to=f"game:{game_id}",
     )
-    print(f"🗑️  Game {game_id}: card {card_id} eliminated")
+    print(f"Game {game_id}: card {card_id} eliminated")
     return jsonify({"status": "ok"})
 
 
@@ -303,6 +321,61 @@ def handle_chat(data):
         "chat", {"role": role, "text": text, "game_id": game_id}, to=f"game:{game_id}"
     )
     print(f"💬 {role}@{game_id}: {text}")
+
+
+@socketio.on("voice_join")
+def handle_voice_join(data):
+    """Participant joins the voice mesh for a game."""
+    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    role = data.get("role", "unknown")
+    client_id = data.get("client_id")
+
+    if not client_id:
+        return {"status": "error", "message": "client_id required"}
+
+    if game_id not in VOICE_PARTICIPANTS:
+        VOICE_PARTICIPANTS[game_id] = {}
+
+    VOICE_PARTICIPANTS[game_id][client_id] = {"role": role, "socket_id": request.sid}
+    record_event(role, "voice_join", game_id)
+
+    # Send the list of existing peers to the new joiner
+    peers = [
+        {"client_id": cid, "role": info["role"]}
+        for cid, info in VOICE_PARTICIPANTS[game_id].items()
+        if cid != client_id
+    ]
+    socketio.emit("peers_list", {"peers": peers}, to=request.sid)
+    print(f"🎙️ {role} (client {client_id}) joined voice in game {game_id}")
+    return {"status": "ok"}
+
+
+@socketio.on("webrtc_signal")
+def handle_webrtc_signal(data):
+    """Route WebRTC SDP/ICE to specific target peer in the mesh."""
+    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    from_id = data.get("from_id")
+    to_id = data.get("to_id")
+    role = data.get("role", "unknown")
+
+    payload = {
+        "game_id": game_id,
+        "from_id": from_id,
+        "to_id": to_id,
+        "role": role,
+        "description": data.get("description"),
+        "candidate": data.get("candidate"),
+    }
+
+    record_event(role, "webrtc_signal", game_id)
+
+    # Route to specific peer's socket
+    if game_id in VOICE_PARTICIPANTS and to_id in VOICE_PARTICIPANTS[game_id]:
+        target_socket = VOICE_PARTICIPANTS[game_id][to_id]["socket_id"]
+        socketio.emit("webrtc_signal", payload, to=target_socket)
+        print(f"📡 Signal from {from_id} to {to_id} in game {game_id}")
+    else:
+        print(f"⚠️ Could not route signal: to_id {to_id} not found in game {game_id}")
 
 
 # ---------------------------------------------------------------------

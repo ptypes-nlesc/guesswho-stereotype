@@ -6,6 +6,7 @@
     <title>Moderator View – GuessWho Stereotype</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
 </head>
 
 <body>
@@ -37,6 +38,12 @@
         <div class="chat-bar wide">
             <input type="text" id="chat-input" placeholder="Send a message to all participants">
             <button id="send-chat">Send</button>
+        </div>
+
+        <div class="voice-controls" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+            <button id="voice-toggle">Join voice</button>
+            <span id="voice-status" style="color: #555;">idle</span>
+            <audio id="remote-audio" hidden></audio>
         </div>
 
         <footer>
@@ -85,6 +92,16 @@
         socket.on("chat", data => appendMessage(`<b>${data.role}:</b> ${data.text}`));
         socket.on("system", data => appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;"));
         socket.on("eliminate", data => appendMessage(`<em>Eliminated cards: ${data.eliminated.join(", ")}</em>`, "color:red;"));
+
+        // --- Voice (WebRTC) -------------------------------------------
+        setupVoice({
+            socket,
+            gameId,
+            role: "moderator",
+            buttonEl: document.getElementById("voice-toggle"),
+            statusEl: document.getElementById("voice-status"),
+            remoteAudioEl: document.getElementById("remote-audio"),
+        });
     </script>
 </body>
 

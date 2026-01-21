@@ -6,6 +6,7 @@
     <title>Player 2 – Guesser</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
 </head>
 
 <body>
@@ -29,6 +30,12 @@
 
         <h3>Transcript</h3>
         <div id="transcript"></div>
+
+        <div class="voice-controls" style="margin-top: 10px;">
+            <button id="voice-toggle">Join voice</button>
+            <span id="voice-status" style="margin-left: 8px; color: #555;">idle</span>
+            <audio id="remote-audio" hidden></audio>
+        </div>
 
         <div class="chat-bar">
             <input type="text" id="chat-input" placeholder="Send a message to all participants">
@@ -88,6 +95,16 @@
                 const cardEl = document.getElementById(`card${id}`);
                 if (cardEl) cardEl.classList.add('eliminated');
             });
+        });
+
+        // --- Voice (WebRTC) -------------------------------------------
+        setupVoice({
+            socket,
+            gameId,
+            role: 'player2',
+            buttonEl: document.getElementById('voice-toggle'),
+            statusEl: document.getElementById('voice-status'),
+            remoteAudioEl: document.getElementById('remote-audio')
         });
     </script>
 </body>
