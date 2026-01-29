@@ -138,6 +138,12 @@
       setStatus(`${connected}/${states.length} connected`);
     }
 
+    function shouldBeOfferer(localId, remoteId) {
+      // Deterministic rule: only the peer with lexicographically lower ID sends offer
+      // This prevents offer glare and ensures symmetric, predictable signaling
+      return localId < remoteId;
+    }
+
     async function handleRemoteDescription(peerId, description) {
       let pc = peers[peerId];
       if (!pc) {
@@ -261,16 +267,18 @@
         if (peer.client_id === clientId) continue; // ignore self if present
         if (!peers[peer.client_id]) {
           const pc = createPeerConnection(peer.client_id);
-          // Create offer to existing peer
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit("webrtc_signal", {
-            game_id: gameId,
-            from_id: clientId,
-            to_id: peer.client_id,
-            role,
-            description: pc.localDescription
-          });
+          // Only send offer if we should be the offerer (lower client_id)
+          if (shouldBeOfferer(clientId, peer.client_id)) {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit("webrtc_signal", {
+              game_id: gameId,
+              from_id: clientId,
+              to_id: peer.client_id,
+              role,
+              description: pc.localDescription
+            });
+          }
         }
       }
       updateStatus();
