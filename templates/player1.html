@@ -50,6 +50,9 @@
 
         socket.emit('join', {game_id: gameId, role: 'player1', participant_id: window.participantId});
 
+        // Track seen joins by role to avoid duplicate join messages in UI
+        const seenJoins = new Set();
+
         // --- Chat sending ----------------------------------------------
         document.getElementById('send-btn').onclick = () => {
             const text = chatInput.value.trim();
@@ -73,6 +76,12 @@
         });
 
         socket.on('system', data => {
+            // Suppress duplicate join messages (same role appearing multiple times)
+            if (data.action === 'join') {
+                const key = `${data.role}`;
+                if (seenJoins.has(key)) return;  // Already saw this role join
+                seenJoins.add(key);
+            }
             appendMessage(`<em>${data.role || 'System'} joined game ${data.game_id}</em>`, 'color:gray;');
         });
 

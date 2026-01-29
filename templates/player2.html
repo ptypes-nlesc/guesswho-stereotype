@@ -54,6 +54,9 @@
         const transcriptDiv = document.getElementById('transcript');
         const chatInput = document.getElementById('chat-input');
 
+        // Track seen joins by role to avoid duplicate join messages in UI
+        const seenJoins = new Set();
+
         // --- Helper functions ------------------------------------------
         function appendMessage(msg, style = '') {
             const div = document.createElement('div');
@@ -76,6 +79,12 @@
         });
 
         socket.on('system', data => {
+            // Suppress duplicate join messages (same role appearing multiple times)
+            if (data.action === 'join') {
+                const key = `${data.role}`;
+                if (seenJoins.has(key)) return;  // Already saw this role join
+                seenJoins.add(key);
+            }
             appendMessage(`<em>${data.role || 'System'} joined game ${data.game_id}</em>`, 'color:gray;');
         });
 
