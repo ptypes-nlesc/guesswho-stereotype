@@ -100,6 +100,17 @@ def init_db():
             )
             """
         )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS participant_bindings (
+                game_id TEXT,
+                participant_id TEXT,
+                role TEXT,
+                created_at TEXT,
+                PRIMARY KEY (game_id, participant_id)
+            )
+            """
+        )
         conn.commit()
 
 
@@ -225,20 +236,49 @@ def logout():
     return redirect(url_for("index"))
 
 
-# Helper to check role binding
+def get_participant_binding(game_id, participant_id):
+    """Retrieve role binding from database."""
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT role FROM participant_bindings WHERE game_id = ? AND participant_id = ?",
+            (game_id, participant_id),
+        )
+        row = c.fetchone()
+        return row[0] if row else None
+
+
+def set_participant_binding(game_id, participant_id, role):
+    """Store role binding in database."""
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            (game_id, participant_id, role, datetime.datetime.now().isoformat()),
+        )
+        conn.commit()
+
+
+# Helper to check role binding (now DB-backed)
 def check_role_binding(game_id, participant_id, required_role):
     """
-    Enforce role binding: prevent participants from accessing a different role.
+    Enforce role binding: verify participant_id is bound to required_role.
+    Source of truth is the database. Creates binding on first route access.
     Returns (allowed: bool, message: str or None)
     """
     if not participant_id:
-        return True, None  # No binding yet, allow (first-time access)
+        return True, None  # No participant_id — allow (backward compat)
     
-    key = (game_id, participant_id)
-    if key in PARTICIPANT_ROLES:
-        bound_role = PARTICIPANT_ROLES[key]
+    # Check DB for existing binding
+    bound_role = get_participant_binding(game_id, participant_id)
+    
+    if bound_role:
+        # Binding exists
         if bound_role != required_role:
-            return False, f"Forbidden: You are already bound to {bound_role}"
+            return False, f"Forbidden: participant is bound to {bound_role}, not {required_role}"
+    else:
+        # First access: create binding in DB
+        set_participant_binding(game_id, participant_id, required_role)
     
     return True, None
 
@@ -315,6 +355,19 @@ def create_game():
         c.execute(
             "INSERT INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
             (game_id, datetime.datetime.now().isoformat(), chosen_card),
+        )
+        # Pre-bind participant_ids to roles in DB
+        c.execute(
+            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            (game_id, player1_id, "player1", datetime.datetime.now().isoformat()),
+        )
+        c.execute(
+            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            (game_id, player2_id, "player2", datetime.datetime.now().isoformat()),
+        )
+        c.execute(
+            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            (game_id, moderator_id, "moderator", datetime.datetime.now().isoformat()),
         )
         conn.commit()
 
