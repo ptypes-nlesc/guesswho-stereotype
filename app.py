@@ -33,6 +33,9 @@ CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
 # Track active voice participants per game: {game_id: {client_id: {role, socket_id}}}
 VOICE_PARTICIPANTS = {}
 
+# Role binding store: {(game_id, participant_id): role}
+PARTICIPANT_ROLES = {}
+
 
 # ---------------------------------------------------------------------
 # Database utilities
@@ -301,7 +304,13 @@ def handle_join(data):
     """Clients join a shared room by game ID."""
     game_id = data.get("game_id", DEFAULT_GAME_ID)
     role = data.get("role", "unknown")
+    participant_id = data.get("participant_id")
     room = f"game:{game_id}"
+    
+    # Bind participant_id to role for this game
+    if participant_id:
+        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+    
     join_room(room)
     record_event(role, "join", game_id)
     socketio.emit(
@@ -315,7 +324,13 @@ def handle_chat(data):
     """Chat messages between participants."""
     game_id = data.get("game_id", DEFAULT_GAME_ID)
     role = data.get("role", "unknown")
+    participant_id = data.get("participant_id")
     text = data.get("text", "")
+    
+    # Bind participant_id to role for this game
+    if participant_id:
+        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+    
     record_event(role, "chat", game_id, text=text)
     socketio.emit(
         "chat", {"role": role, "text": text, "game_id": game_id}, to=f"game:{game_id}"
@@ -329,9 +344,14 @@ def handle_voice_join(data):
     game_id = data.get("game_id", DEFAULT_GAME_ID)
     role = data.get("role", "unknown")
     client_id = data.get("client_id")
+    participant_id = data.get("participant_id")
 
     if not client_id:
         return {"status": "error", "message": "client_id required"}
+
+    # Bind participant_id to role for this game
+    if participant_id:
+        PARTICIPANT_ROLES[(game_id, participant_id)] = role
 
     if game_id not in VOICE_PARTICIPANTS:
         VOICE_PARTICIPANTS[game_id] = {}
@@ -361,6 +381,12 @@ def handle_webrtc_signal(data):
     from_id = data.get("from_id")
     to_id = data.get("to_id")
     role = data.get("role", "unknown")
+    participant_id = data.get("participant_id")
+    
+    # Bind participant_id to role for this game
+    if participant_id:
+        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+    role = data.get("role", "unknown")
 
     payload = {
         "game_id": game_id,
@@ -377,9 +403,9 @@ def handle_webrtc_signal(data):
     if game_id in VOICE_PARTICIPANTS and to_id in VOICE_PARTICIPANTS[game_id]:
         target_socket = VOICE_PARTICIPANTS[game_id][to_id]["socket_id"]
         socketio.emit("webrtc_signal", payload, to=target_socket)
-        print(f"📡 Signal from {from_id} to {to_id} in game {game_id}")
+        print(f"Signal from {from_id} to {to_id} in game {game_id}")
     else:
-        print(f"⚠️ Could not route signal: to_id {to_id} not found in game {game_id}")
+        print(f"Could not route signal: to_id {to_id} not found in game {game_id}")
 
 
 # ---------------------------------------------------------------------
