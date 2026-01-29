@@ -10,13 +10,15 @@
     const statusEl = opts.statusEl;
     const remoteAudioEl = opts.remoteAudioEl;
 
-    // stable participant_id across reloads
-    let participantId = localStorage.getItem("participant_id");
+    // stable participant_id across reloads, scoped by game_id + role
+    const participantStorageKey = `participant_id_${gameId}_${role}`;
+    let participantId = localStorage.getItem(participantStorageKey);
     if (!participantId) {
       participantId = crypto.randomUUID();
-      localStorage.setItem("participant_id", participantId);
+      localStorage.setItem(participantStorageKey, participantId);
     }
     window.participantId = participantId;
+    console.log(`[WebRTC] Participant ID (${role}): ${participantId}`);
 
     // Generate or reuse a stable client ID for this browser
     const storageKey = `gw_client_id_${role || "unknown"}`;
