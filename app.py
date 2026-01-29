@@ -346,6 +346,10 @@ def handle_voice_join(data):
         if cid != client_id
     ]
     socketio.emit("peers_list", {"peers": peers}, to=request.sid)
+    
+    # Notify all OTHER peers that a new peer joined (so they can initiate connection too)
+    socketio.emit("new_peer_joined", {"client_id": client_id, "role": role}, to=f"game:{game_id}", skip_sid=request.sid)
+    
     print(f"🎙️ {role} (client {client_id}) joined voice in game {game_id}")
     return {"status": "ok"}
 

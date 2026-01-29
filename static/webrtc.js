@@ -10,8 +10,23 @@
     const statusEl = opts.statusEl;
     const remoteAudioEl = opts.remoteAudioEl;
 
-    // Generate unique client ID for this session
-    const clientId = `${role}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate or reuse a stable client ID for this browser
+    const storageKey = `gw_client_id_${role || "unknown"}`;
+    let clientId = null;
+    try {
+      clientId = localStorage.getItem(storageKey);
+    } catch (_) {
+      // ignore localStorage errors
+    }
+    if (!clientId) {
+      clientId = `${role || "unknown"}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      try {
+        localStorage.setItem(storageKey, clientId);
+      } catch (_) {
+        // ignore localStorage errors
+      }
+    }
+    console.log(`[WebRTC] Stable client_id: ${clientId}`);
 
     let localStream = null;
     let peers = {}; // {peer_id: RTCPeerConnection}
@@ -53,12 +68,18 @@
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" }
+          { urls: "stun:stun1.l.google.com:19302" },
+          {
+            urls: "turn:numb.viagenie.ca",
+            username: "webrtc@example.com",
+            credential: "webrtc"
+          }
         ]
       });
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log(`[WebRTC] Sending ICE candidate from ${clientId} to ${peerId}`);
           socket.emit("webrtc_signal", {
             game_id: gameId,
             from_id: clientId,
@@ -124,6 +145,12 @@
       setStatus(`${connected}/${states.length} connected`);
     }
 
+    function shouldBeOfferer(localId, remoteId) {
+      // Deterministic rule: only the peer with lexicographically lower ID sends offer
+      // This prevents offer glare and ensures symmetric, predictable signaling
+      return localId < remoteId;
+    }
+
     async function handleRemoteDescription(peerId, description) {
       let pc = peers[peerId];
       if (!pc) {
@@ -146,6 +173,7 @@
         if (description.type === "offer") {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
+          console.log(`[WebRTC] Sending ANSWER from ${clientId} to ${peerId}`);
           socket.emit("webrtc_signal", {
             game_id: gameId,
             from_id: clientId,
@@ -163,6 +191,11 @@
       const fromId = payload.from_id;
       const description = payload.description;
       const candidate = payload.candidate;
+      if (description) {
+        console.log(`[WebRTC] Received ${description.type.toUpperCase()} from ${fromId} to ${clientId}`);
+      } else if (candidate) {
+        console.log(`[WebRTC] Received ICE candidate from ${fromId} to ${clientId}`);
+      }
 
       if (description) {
         await handleRemoteDescription(fromId, description);
@@ -247,17 +280,43 @@
         if (peer.client_id === clientId) continue; // ignore self if present
         if (!peers[peer.client_id]) {
           const pc = createPeerConnection(peer.client_id);
-          // Create offer to existing peer
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit("webrtc_signal", {
-            game_id: gameId,
-            from_id: clientId,
-            to_id: peer.client_id,
-            role,
-            description: pc.localDescription
-          });
+          // Only send offer if we should be the offerer (lower client_id)
+          if (shouldBeOfferer(clientId, peer.client_id)) {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            console.log(`[WebRTC] Sending OFFER from ${clientId} to ${peer.client_id}`);
+            socket.emit("webrtc_signal", {
+              game_id: gameId,
+              from_id: clientId,
+              to_id: peer.client_id,
+              role,
+              description: pc.localDescription
+            });
+          }
         }
+      }
+      updateStatus();
+    });
+
+    // Socket event: a new peer joined the room (notify existing peers)
+    socket.on("new_peer_joined", async (data) => {
+      const newPeerId = data.client_id;
+      const newRole = data.role;
+      console.log(`[WebRTC] New peer joined: ${newPeerId} (${newRole})`);
+      
+      // Only create connection if we should be the offerer (lower client_id)
+      if (shouldBeOfferer(clientId, newPeerId) && !peers[newPeerId]) {
+        const pc = createPeerConnection(newPeerId);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        console.log(`[WebRTC] Sending OFFER to newly joined peer ${newPeerId}`);
+        socket.emit("webrtc_signal", {
+          game_id: gameId,
+          from_id: clientId,
+          to_id: newPeerId,
+          role,
+          description: pc.localDescription
+        });
       }
       updateStatus();
     });
