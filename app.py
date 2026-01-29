@@ -222,6 +222,24 @@ def logout():
     return redirect(url_for("index"))
 
 
+# Helper to check role binding
+def check_role_binding(game_id, participant_id, required_role):
+    """
+    Enforce role binding: prevent participants from accessing a different role.
+    Returns (allowed: bool, message: str or None)
+    """
+    if not participant_id:
+        return True, None  # No binding yet, allow (first-time access)
+    
+    key = (game_id, participant_id)
+    if key in PARTICIPANT_ROLES:
+        bound_role = PARTICIPANT_ROLES[key]
+        if bound_role != required_role:
+            return False, f"Forbidden: You are already bound to {bound_role}"
+    
+    return True, None
+
+
 @app.route("/dashboard")
 def dashboard():
     """Moderator dashboard."""
@@ -234,6 +252,13 @@ def dashboard():
 def player1():
     """Player 1 – secret card view."""
     game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    participant_id = request.args.get("participant_id")
+    
+    # Enforce role binding
+    allowed, message = check_role_binding(game_id, participant_id, "player1")
+    if not allowed:
+        return message, 403
+    
     chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
     return render_template(
         "player1.html", card={"id": chosen, "name": f"Card {chosen}"}, game_id=game_id
@@ -244,6 +269,13 @@ def player1():
 def player2():
     """Player 2 – guesser grid view."""
     game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    participant_id = request.args.get("participant_id")
+    
+    # Enforce role binding
+    allowed, message = check_role_binding(game_id, participant_id, "player2")
+    if not allowed:
+        return message, 403
+    
     eliminated = get_eliminated_cards(game_id)
     return render_template(
         "player2.html", cards=CARDS, eliminated=eliminated, game_id=game_id
@@ -254,6 +286,13 @@ def player2():
 def moderator():
     """Moderator live view."""
     game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    participant_id = request.args.get("participant_id")
+    
+    # Enforce role binding
+    allowed, message = check_role_binding(game_id, participant_id, "moderator")
+    if not allowed:
+        return message, 403
+    
     return render_template("moderator.html", game_id=game_id)
 
 
