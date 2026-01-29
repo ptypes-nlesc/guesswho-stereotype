@@ -337,6 +337,24 @@ def eliminate_card():
 
 # ---------------------------------------------------------------------
 # Socket.IO events
+# Helper to validate role binding on socket events
+def validate_role_binding(game_id, participant_id, claimed_role):
+    """
+    Enforce role binding: verify that participant_id matches the claimed role.
+    Returns (valid: bool, error_msg: str or None)
+    """
+    if not participant_id:
+        return True, None  # No participant_id provided — allow (backward compat)
+    
+    key = (game_id, participant_id)
+    if key in PARTICIPANT_ROLES:
+        bound_role = PARTICIPANT_ROLES[key]
+        if bound_role != claimed_role:
+            return False, f"Role mismatch: participant bound to {bound_role}, not {claimed_role}"
+    
+    return True, None
+
+
 # ---------------------------------------------------------------------
 @socketio.on("join")
 def handle_join(data):
@@ -344,6 +362,12 @@ def handle_join(data):
     game_id = data.get("game_id", DEFAULT_GAME_ID)
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
+    
+    # Validate role binding
+    valid, error = validate_role_binding(game_id, participant_id, role)
+    if not valid:
+        return {"status": "error", "message": error}
+    
     room = f"game:{game_id}"
     
     # Bind participant_id to role for this game
@@ -366,6 +390,11 @@ def handle_chat(data):
     participant_id = data.get("participant_id")
     text = data.get("text", "")
     
+    # Validate role binding
+    valid, error = validate_role_binding(game_id, participant_id, role)
+    if not valid:
+        return {"status": "error", "message": error}
+    
     # Bind participant_id to role for this game
     if participant_id:
         PARTICIPANT_ROLES[(game_id, participant_id)] = role
@@ -387,6 +416,11 @@ def handle_voice_join(data):
 
     if not client_id:
         return {"status": "error", "message": "client_id required"}
+
+    # Validate role binding
+    valid, error = validate_role_binding(game_id, participant_id, role)
+    if not valid:
+        return {"status": "error", "message": error}
 
     # Bind participant_id to role for this game
     if participant_id:
@@ -422,10 +456,14 @@ def handle_webrtc_signal(data):
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
     
+    # Validate role binding
+    valid, error = validate_role_binding(game_id, participant_id, role)
+    if not valid:
+        return {"status": "error", "message": error}
+    
     # Bind participant_id to role for this game
     if participant_id:
         PARTICIPANT_ROLES[(game_id, participant_id)] = role
-    role = data.get("role", "unknown")
 
     payload = {
         "game_id": game_id,
