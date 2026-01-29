@@ -10,6 +10,14 @@
     const statusEl = opts.statusEl;
     const remoteAudioEl = opts.remoteAudioEl;
 
+    // Step 1: stable participant_id across reloads
+    let participantId = localStorage.getItem("participant_id");
+    if (!participantId) {
+      participantId = crypto.randomUUID();
+      localStorage.setItem("participant_id", participantId);
+    }
+    window.participantId = participantId;
+
     // Generate or reuse a stable client ID for this browser
     const storageKey = `gw_client_id_${role || "unknown"}`;
     let clientId = null;
