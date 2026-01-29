@@ -26,6 +26,7 @@
         // ignore localStorage errors
       }
     }
+    console.log(`[WebRTC] Stable client_id: ${clientId}`);
 
     let localStream = null;
     let peers = {}; // {peer_id: RTCPeerConnection}
@@ -73,6 +74,7 @@
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log(`[WebRTC] Sending ICE candidate from ${clientId} to ${peerId}`);
           socket.emit("webrtc_signal", {
             game_id: gameId,
             from_id: clientId,
@@ -166,6 +168,7 @@
         if (description.type === "offer") {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
+          console.log(`[WebRTC] Sending ANSWER from ${clientId} to ${peerId}`);
           socket.emit("webrtc_signal", {
             game_id: gameId,
             from_id: clientId,
@@ -183,6 +186,11 @@
       const fromId = payload.from_id;
       const description = payload.description;
       const candidate = payload.candidate;
+      if (description) {
+        console.log(`[WebRTC] Received ${description.type.toUpperCase()} from ${fromId} to ${clientId}`);
+      } else if (candidate) {
+        console.log(`[WebRTC] Received ICE candidate from ${fromId} to ${clientId}`);
+      }
 
       if (description) {
         await handleRemoteDescription(fromId, description);
@@ -271,6 +279,7 @@
           if (shouldBeOfferer(clientId, peer.client_id)) {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
+            console.log(`[WebRTC] Sending OFFER from ${clientId} to ${peer.client_id}`);
             socket.emit("webrtc_signal", {
               game_id: gameId,
               from_id: clientId,
