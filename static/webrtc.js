@@ -293,8 +293,28 @@
       updateStatus();
     });
 
-    // Socket event: receive WebRTC signal from peer
-    socket.on("webrtc_signal", handleIncomingSignal);
+    // Socket event: a new peer joined the room (notify existing peers)
+    socket.on("new_peer_joined", async (data) => {
+      const newPeerId = data.client_id;
+      const newRole = data.role;
+      console.log(`[WebRTC] New peer joined: ${newPeerId} (${newRole})`);
+      
+      // Only create connection if we should be the offerer (lower client_id)
+      if (shouldBeOfferer(clientId, newPeerId) && !peers[newPeerId]) {
+        const pc = createPeerConnection(newPeerId);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        console.log(`[WebRTC] Sending OFFER to newly joined peer ${newPeerId}`);
+        socket.emit("webrtc_signal", {
+          game_id: gameId,
+          from_id: clientId,
+          to_id: newPeerId,
+          role,
+          description: pc.localDescription
+        });
+      }
+      updateStatus();
+    });
 
     setStatus("idle");
     setButton(false);
