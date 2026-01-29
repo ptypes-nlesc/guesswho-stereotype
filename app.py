@@ -70,6 +70,7 @@ def init_db():
                 action TEXT,
                 text TEXT,
                 card INTEGER,
+                participant_id TEXT,
                 timestamp TEXT
             )
             """
@@ -113,13 +114,14 @@ def log_event(entry):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO events (game_id, role, action, text, card, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO events (game_id, role, action, text, card, participant_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 game_id,
                 role,
                 action,
                 text,
                 card,
+                entry.get("participant_id"),
                 entry.get("timestamp") or datetime.datetime.now().isoformat(),
             ),
         )
@@ -182,13 +184,14 @@ with get_db_conn() as conn:
 # ---------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------
-def record_event(role, action, game_id, text=None, card=None):
+def record_event(role, action, game_id, text=None, card=None, participant_id=None):
     entry = {
         "role": role,
         "action": action,
         "text": text,
         "card": card,
         "game_id": game_id,
+        "participant_id": participant_id,
         "timestamp": datetime.datetime.now().isoformat(),
     }
     try:
@@ -298,9 +301,14 @@ def moderator():
 
 @app.route("/create_game", methods=["POST"])
 def create_game():
-    """Create a new game and return its ID."""
+    """Create a new game and return its ID with participant_ids for each role."""
     game_id = uuid.uuid4().hex
     chosen_card = random.choice(CARDS)["id"]
+    
+    # Generate unique participant_ids for each role
+    player1_id = str(uuid.uuid4())
+    player2_id = str(uuid.uuid4())
+    moderator_id = str(uuid.uuid4())
 
     with get_db_conn() as conn:
         c = conn.cursor()
@@ -312,7 +320,16 @@ def create_game():
 
     record_event("system", "card_draw", game_id, card=chosen_card)
     print(f"Created new game {game_id} with card {chosen_card}")
-    return jsonify({"status": "ok", "game_id": game_id, "chosen_card": chosen_card})
+    return jsonify({
+        "status": "ok",
+        "game_id": game_id,
+        "chosen_card": chosen_card,
+        "participant_ids": {
+            "player1": player1_id,
+            "player2": player2_id,
+            "moderator": moderator_id
+        }
+    })
 
 
 @app.route("/eliminate_card", methods=["POST"])
@@ -375,7 +392,7 @@ def handle_join(data):
         PARTICIPANT_ROLES[(game_id, participant_id)] = role
     
     join_room(room)
-    record_event(role, "join", game_id)
+    record_event(role, "join", game_id, participant_id=participant_id)
     socketio.emit(
         "system", {"action": "join", "role": role, "game_id": game_id}, to=room
     )
@@ -399,7 +416,7 @@ def handle_chat(data):
     if participant_id:
         PARTICIPANT_ROLES[(game_id, participant_id)] = role
     
-    record_event(role, "chat", game_id, text=text)
+    record_event(role, "chat", game_id, text=text, participant_id=participant_id)
     socketio.emit(
         "chat", {"role": role, "text": text, "game_id": game_id}, to=f"game:{game_id}"
     )
@@ -430,7 +447,7 @@ def handle_voice_join(data):
         VOICE_PARTICIPANTS[game_id] = {}
 
     VOICE_PARTICIPANTS[game_id][client_id] = {"role": role, "socket_id": request.sid}
-    record_event(role, "voice_join", game_id)
+    record_event(role, "voice_join", game_id, participant_id=participant_id)
 
     # Send the list of existing peers to the new joiner
     peers = [
@@ -474,7 +491,7 @@ def handle_webrtc_signal(data):
         "candidate": data.get("candidate"),
     }
 
-    record_event(role, "webrtc_signal", game_id)
+    record_event(role, "webrtc_signal", game_id, participant_id=participant_id)
 
     # Route to specific peer's socket
     if game_id in VOICE_PARTICIPANTS and to_id in VOICE_PARTICIPANTS[game_id]:
