@@ -10,8 +10,22 @@
     const statusEl = opts.statusEl;
     const remoteAudioEl = opts.remoteAudioEl;
 
-    // Generate unique client ID for this session
-    const clientId = `${role}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate or reuse a stable client ID for this browser
+    const storageKey = `gw_client_id_${role || "unknown"}`;
+    let clientId = null;
+    try {
+      clientId = localStorage.getItem(storageKey);
+    } catch (_) {
+      // ignore localStorage errors
+    }
+    if (!clientId) {
+      clientId = `${role || "unknown"}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      try {
+        localStorage.setItem(storageKey, clientId);
+      } catch (_) {
+        // ignore localStorage errors
+      }
+    }
 
     let localStream = null;
     let peers = {}; // {peer_id: RTCPeerConnection}
