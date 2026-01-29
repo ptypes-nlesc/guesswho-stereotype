@@ -10,7 +10,7 @@
     const statusEl = opts.statusEl;
     const remoteAudioEl = opts.remoteAudioEl;
 
-    // Step 1: stable participant_id across reloads
+    // stable participant_id across reloads
     let participantId = localStorage.getItem("participant_id");
     if (!participantId) {
       participantId = crypto.randomUUID();
@@ -93,6 +93,7 @@
             from_id: clientId,
             to_id: peerId,
             role,
+            participant_id: participantId,
             candidate: event.candidate
           });
         }
@@ -187,6 +188,7 @@
             from_id: clientId,
             to_id: peerId,
             role,
+            participant_id: participantId,
             description: pc.localDescription
           });
         }
@@ -236,7 +238,8 @@
         socket.emit("voice_join", {
           game_id: gameId,
           role,
-          client_id: clientId
+          client_id: clientId,
+          participant_id: participantId
         });
 
         setButton(true);
@@ -298,6 +301,7 @@
               from_id: clientId,
               to_id: peer.client_id,
               role,
+              participant_id: participantId,
               description: pc.localDescription
             });
           }
@@ -323,6 +327,7 @@
           from_id: clientId,
           to_id: newPeerId,
           role,
+          participant_id: participantId,
           description: pc.localDescription
         });
       }

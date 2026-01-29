@@ -49,7 +49,7 @@
         document.getElementById('game-info').textContent = `Game ID: ${gameId}`;
 
         const socket = io();
-        socket.emit('join', {game_id: gameId, role: 'player2'});
+        socket.emit('join', {game_id: gameId, role: 'player2', participant_id: window.participantId});
 
         const transcriptDiv = document.getElementById('transcript');
         const chatInput = document.getElementById('chat-input');
@@ -67,7 +67,7 @@
         document.getElementById('send-btn').onclick = () => {
             const text = chatInput.value.trim();
             if (!text) return;
-            socket.emit('chat', {game_id: gameId, role: 'player2', text});
+            socket.emit('chat', {game_id: gameId, role: 'player2', text, participant_id: window.participantId});
             chatInput.value = '';
         };
 
