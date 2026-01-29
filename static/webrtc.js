@@ -68,7 +68,17 @@
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" }
+          { urls: "stun:stun1.l.google.com:19302" },
+          {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+          },
+          {
+            urls: "turn:openrelay.metered.ca:443?transport=tcp",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+          }
         ]
       });
 
@@ -315,6 +325,9 @@
       }
       updateStatus();
     });
+
+    // Socket event: receive WebRTC signal from peer
+    socket.on("webrtc_signal", handleIncomingSignal);
 
     setStatus("idle");
     setButton(false);
