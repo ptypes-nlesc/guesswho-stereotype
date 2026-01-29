@@ -34,13 +34,16 @@
             const data = await res.json();
             if (data.status === 'ok') {
                 const gid = data.game_id;
+                const p1_id = data.participant_ids.player1;
+                const p2_id = data.participant_ids.player2;
+                const mod_id = data.participant_ids.moderator;
                 document.getElementById('links').innerHTML = `
                     <h3>🆕 New Game Created</h3>
                     <p><b>Game ID:</b> <span class="game-id">${gid}</span></p>
                     <div class="link-group">
-                        <a class="link-btn" href="/player1?game_id=${gid}" target="_blank">🎭 Open Player 1 (Secret Card)</a>
-                        <a class="link-btn" href="/player2?game_id=${gid}" target="_blank">🔍 Open Player 2 (Guesser)</a>
-                        <a class="link-btn" href="/moderator?game_id=${gid}" target="_blank">🖥️ Open Moderator View (Live)</a>
+                        <a class="link-btn" href="/player1?game_id=${gid}&participant_id=${p1_id}" target="_blank">🎭 Open Player 1 (Secret Card)</a>
+                        <a class="link-btn" href="/player2?game_id=${gid}&participant_id=${p2_id}" target="_blank">🔍 Open Player 2 (Guesser)</a>
+                        <a class="link-btn" href="/moderator?game_id=${gid}&participant_id=${mod_id}" target="_blank">🖥️ Open Moderator View (Live)</a>
                     </div>
                 `;
             } else {

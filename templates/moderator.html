@@ -66,7 +66,7 @@
 
         // --- Socket setup ---------------------------------------------
         const socket = io();
-        socket.emit("join", {game_id: gameId, role: "moderator"});
+        socket.emit("join", {game_id: gameId, role: "moderator", participant_id: window.participantId});
 
         const transcriptDiv = document.getElementById("transcript");
         const chatInput = document.getElementById("chat-input");
@@ -84,7 +84,7 @@
         document.getElementById("send-chat").onclick = () => {
             const text = chatInput.value.trim();
             if (!text) return;
-            socket.emit("chat", {game_id: gameId, role: "moderator", text});
+            socket.emit("chat", {game_id: gameId, role: "moderator", text, participant_id: window.participantId});
             chatInput.value = "";
         };
 

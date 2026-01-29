@@ -10,6 +10,16 @@
     const statusEl = opts.statusEl;
     const remoteAudioEl = opts.remoteAudioEl;
 
+    // stable participant_id across reloads, scoped by game_id + role
+    const participantStorageKey = `participant_id_${gameId}_${role}`;
+    let participantId = localStorage.getItem(participantStorageKey);
+    if (!participantId) {
+      participantId = crypto.randomUUID();
+      localStorage.setItem(participantStorageKey, participantId);
+    }
+    window.participantId = participantId;
+    console.log(`[WebRTC] Participant ID (${role}): ${participantId}`);
+
     // Generate or reuse a stable client ID for this browser
     const storageKey = `gw_client_id_${role || "unknown"}`;
     let clientId = null;
@@ -85,6 +95,7 @@
             from_id: clientId,
             to_id: peerId,
             role,
+            participant_id: participantId,
             candidate: event.candidate
           });
         }
@@ -179,6 +190,7 @@
             from_id: clientId,
             to_id: peerId,
             role,
+            participant_id: participantId,
             description: pc.localDescription
           });
         }
@@ -228,7 +240,8 @@
         socket.emit("voice_join", {
           game_id: gameId,
           role,
-          client_id: clientId
+          client_id: clientId,
+          participant_id: participantId
         });
 
         setButton(true);
@@ -290,6 +303,7 @@
               from_id: clientId,
               to_id: peer.client_id,
               role,
+              participant_id: participantId,
               description: pc.localDescription
             });
           }
@@ -315,6 +329,7 @@
           from_id: clientId,
           to_id: newPeerId,
           role,
+          participant_id: participantId,
           description: pc.localDescription
         });
       }

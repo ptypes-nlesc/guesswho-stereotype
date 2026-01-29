@@ -16,7 +16,7 @@ function sendChat(role) {
   if (!input) return;
   const text = input.value.trim();
   if (!text) return;
-  const payload = { game_id: 'default', role: role, text: text };
+  const payload = { game_id: 'default', role: role, text: text, participant_id: window.participantId };
   // Prefer socket if available
   try {
     if (typeof socket !== 'undefined' && socket.connected) {
@@ -57,7 +57,7 @@ function appendTranscriptEntry(obj) {
 if (window.top === window.self) {
   try {
     window.socket = io();
-    socket.emit('join', { game_id: 'default' });
+    socket.emit('join', { game_id: 'default', participant_id: window.participantId });
 
     // Fetch recent transcript for this game and display it
     fetch('/transcript?game_id=default&limit=200')

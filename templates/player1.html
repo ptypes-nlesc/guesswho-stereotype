@@ -48,13 +48,13 @@
         const chatInput = document.getElementById('chat-input');
         const socket = io();
 
-        socket.emit('join', {game_id: gameId, role: 'player1'});
+        socket.emit('join', {game_id: gameId, role: 'player1', participant_id: window.participantId});
 
         // --- Chat sending ----------------------------------------------
         document.getElementById('send-btn').onclick = () => {
             const text = chatInput.value.trim();
             if (!text) return;
-            socket.emit('chat', {game_id: gameId, role: 'player1', text});
+            socket.emit('chat', {game_id: gameId, role: 'player1', text, participant_id: window.participantId});
             chatInput.value = '';
         };
 
