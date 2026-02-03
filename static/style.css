@@ -235,6 +235,12 @@ iframe {
     margin-bottom: 10px;
 }
 
+/* Moderator view-only card grid */
+.moderator-main #card-grid .card:hover {
+    transform: none;
+    cursor: default;
+}
+
 iframe {
     width: 100%;
     border: none;
