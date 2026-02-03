@@ -24,18 +24,20 @@
             <p><strong>Your Secret Card:</strong> {{ card.name }}</p>
         </div>
 
-        <h3>Transcript</h3>
-        <div id="transcript"></div>
+        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+            <h3 class="chat-title" style="align-self: flex-start;">Chat</h3>
+            <div id="transcript"></div>
+
+            <div class="chat-bar">
+                <input type="text" id="chat-input" placeholder="Send a message to all participants">
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
 
         <div class="voice-controls" style="margin-top: 10px;">
             <button id="voice-toggle">Join voice</button>
             <span id="voice-status" style="margin-left: 8px; color: #555;">idle</span>
             <audio id="remote-audio" hidden></audio>
-        </div>
-
-        <div class="chat-bar">
-            <input type="text" id="chat-input" placeholder="Send a message to all participants">
-            <button id="send-btn">Send</button>
         </div>
     </main>
 
@@ -54,12 +56,20 @@
         const seenJoins = new Set();
 
         // --- Chat sending ----------------------------------------------
-        document.getElementById('send-btn').onclick = () => {
+        const sendChat = () => {
             const text = chatInput.value.trim();
             if (!text) return;
             socket.emit('chat', {game_id: gameId, role: 'player1', text, participant_id: window.participantId});
             chatInput.value = '';
         };
+
+        document.getElementById('send-btn').onclick = sendChat;
+        chatInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                sendChat();
+            }
+        });
 
         // --- Helper to add transcript lines -----------------------------
         function appendMessage(msg, style = '') {

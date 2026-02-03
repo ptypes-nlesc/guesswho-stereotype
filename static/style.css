@@ -50,19 +50,37 @@ button:hover {
 }
 
 /* -------------------------------------------------------------
-   Chat + Transcript
+   Chat
    ------------------------------------------------------------- */
+.chat-title {
+    margin: 18px 0 8px;
+    font-size: 18px;
+    color: #2a6ebd;
+    letter-spacing: 0.2px;
+}
+
 #transcript {
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 10px;
+    background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%);
+    border: 1px solid #e3e7ee;
+    border-radius: 12px;
+    padding: 12px;
     width: 100%;
     max-width: 700px;
     height: 180px;
     overflow-y: auto;
-    margin-top: 10px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    margin-top: 8px;
+    box-shadow: 0 8px 18px rgba(16, 24, 40, 0.08);
+    box-sizing: border-box;
+    text-align: left;
+}
+
+#transcript div {
+    padding: 4px 2px;
+    border-bottom: 1px dashed rgba(0, 0, 0, 0.06);
+}
+
+#transcript div:last-child {
+    border-bottom: none;
 }
 
 input[type="text"] {
@@ -76,8 +94,9 @@ input[type="text"] {
     display: flex;
     width: 100%;
     max-width: 700px;
-    margin-top: 10px;
+    margin-top: 8px;
     gap: 8px;
+    box-sizing: border-box;
 }
 
 /* -------------------------------------------------------------
@@ -256,23 +275,31 @@ iframe {
     margin-bottom: 8px;
 }
 
-#transcript {
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+.moderator-main #transcript {
+    background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%);
+    border: 1px solid #e3e7ee;
+    border-radius: 12px;
+    padding: 12px;
     width: 100%;
-    max-width: 1300px;
-    height: 220px;
+    max-width: 700px;
+    height: 180px;
     overflow-y: auto;
-    padding: 15px;
-    font-size: 14px;
-    line-height: 1.5;
+    margin-top: 8px;
+    box-shadow: 0 8px 18px rgba(16, 24, 40, 0.08);
+    box-sizing: border-box;
 }
 
-.chat-bar.wide {
-    max-width: 1300px;
-    margin-top: 15px;
-    gap: 10px;
+.moderator-main #transcript div {
+    padding: 4px 2px;
+    border-bottom: 1px dashed rgba(0, 0, 0, 0.06);
+}
+
+.moderator-main #transcript div:last-child {
+    border-bottom: none;
+}
+
+.moderator-main .chat-bar {
+    max-width: 700px;
 }
 
 /* Footer */
