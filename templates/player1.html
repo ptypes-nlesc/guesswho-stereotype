@@ -95,9 +95,7 @@
             appendMessage(`<em>${data.role || 'System'} joined game ${data.game_id}</em>`, 'color:gray;');
         });
 
-        socket.on('eliminate', data => {
-            appendMessage(`<em>Player 2 eliminated card ${data.card}</em>`, 'color:red;');
-        });
+        // Player 1 does not receive elimination messages - only moderator and player2 should see them
 
         // --- Voice (WebRTC) -------------------------------------------
         setupVoice({

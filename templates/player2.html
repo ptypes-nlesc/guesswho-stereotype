@@ -100,6 +100,11 @@
 
         // --- Elimination logic -----------------------------------------
         function eliminateCard(cardId) {
+            const cardEl = document.getElementById(`card${cardId}`);
+            // Prevent eliminating the same card twice
+            if (cardEl && cardEl.classList.contains('eliminated')) {
+                return;
+            }
             fetch('/eliminate_card', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -108,12 +113,9 @@
         }
 
         socket.on('eliminate', data => {
-            const eliminatedIds = data.eliminated || [];
-            appendMessage(`<em>Eliminated cards: ${eliminatedIds.join(', ')}</em>`, 'color:red;');
-            eliminatedIds.forEach(id => {
-                const cardEl = document.getElementById(`card${id}`);
-                if (cardEl) cardEl.classList.add('eliminated');
-            });
+            appendMessage(`<em>Eliminated card: ${data.card}</em>`, 'color:red;');
+            const cardEl = document.getElementById(`card${data.card}`);
+            if (cardEl) cardEl.classList.add('eliminated');
         });
 
         // --- Voice (WebRTC) -------------------------------------------

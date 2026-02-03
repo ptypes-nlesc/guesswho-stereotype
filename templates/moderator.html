@@ -119,12 +119,9 @@
             appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;");
         });
         socket.on("eliminate", data => {
-            const eliminatedIds = data.eliminated || [];
-            appendMessage(`<em>Eliminated cards: ${eliminatedIds.join(", ")}</em>`, "color:red;");
-            eliminatedIds.forEach(id => {
-                const cardEl = document.getElementById(`card${id}`);
-                if (cardEl) cardEl.classList.add("eliminated");
-            });
+            appendMessage(`<em>Eliminated card: ${data.card}</em>`, "color:red;");
+            const cardEl = document.getElementById(`card${data.card}`);
+            if (cardEl) cardEl.classList.add("eliminated");
         });
 
         // --- Voice (WebRTC) -------------------------------------------
