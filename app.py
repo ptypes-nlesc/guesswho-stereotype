@@ -412,11 +412,15 @@ def eliminate_card():
     if not card_id:
         return jsonify({"status": "error", "message": "card_id required"}), 400
 
-    record_event("player2", "eliminate", game_id, card=card_id)
+    # Check if card is already eliminated
     eliminated = get_eliminated_cards(game_id)
+    if int(card_id) in eliminated:
+        return jsonify({"status": "ok"})  # Already eliminated, no action needed
+
+    record_event("player2", "eliminate", game_id, card=card_id)
     socketio.emit(
         "eliminate",
-        {"card": int(card_id), "eliminated": list(eliminated)},
+        {"card": int(card_id)},
         to=f"game:{game_id}",
     )
     print(f"Game {game_id}: card {card_id} eliminated")
