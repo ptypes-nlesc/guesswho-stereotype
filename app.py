@@ -174,6 +174,16 @@ def get_transcript(game_id, limit=200):
         return [dict(r) for r in reversed(c.fetchall())]
 
 
+def get_joined_roles(game_id):
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT DISTINCT role FROM events WHERE game_id = ? AND action = ?",
+            (game_id, "join"),
+        )
+        return {row[0] for row in c.fetchall()}
+
+
 # ---------------------------------------------------------------------
 # Initialize DB and default game
 # ---------------------------------------------------------------------
@@ -335,8 +345,16 @@ def moderator():
     allowed, message = check_role_binding(game_id, participant_id, "moderator")
     if not allowed:
         return message, 403
-    
-    return render_template("moderator.html", game_id=game_id)
+
+    chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
+    eliminated = get_eliminated_cards(game_id)
+    return render_template(
+        "moderator.html",
+        game_id=game_id,
+        cards=CARDS,
+        eliminated=eliminated,
+        secret_card={"id": chosen, "name": f"Card {chosen}"},
+    )
 
 
 @app.route("/create_game", methods=["POST"])
@@ -449,6 +467,19 @@ def handle_join(data):
     socketio.emit(
         "system", {"action": "join", "role": role, "game_id": game_id}, to=room
     )
+
+    # Send prior join messages to the newly joined client so they see all roles
+    try:
+        for joined_role in get_joined_roles(game_id):
+            if joined_role == role:
+                continue
+            socketio.emit(
+                "system",
+                {"action": "join", "role": joined_role, "game_id": game_id},
+                to=request.sid,
+            )
+    except Exception as e:
+        print(f"Failed to replay join roles: {e}")
     print(f"👥 {role} joined room {room}")
 
 

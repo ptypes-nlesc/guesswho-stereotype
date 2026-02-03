@@ -23,12 +23,26 @@
         <div class="player-panels">
             <div class="player-box">
                 <h3>Player 1 (Secret Card)</h3>
-                <iframe id="p1frame" title="Player 1 View"></iframe>
+                {% if secret_card is defined %}
+                <div class="secret-card">
+                    <img src="{{ url_for('static', filename='cards/' + secret_card.id|string + '.png') }}" alt="{{ secret_card.name }}"
+                        class="secret-card-image">
+                    <p><strong>Secret Card:</strong> {{ secret_card.name }}</p>
+                </div>
+                {% else %}
+                <p style="color: #999;">Secret card not available.</p>
+                {% endif %}
             </div>
 
             <div class="player-box">
-                <h3>Player 2 (Guesser)</h3>
-                <iframe id="p2frame" title="Player 2 View"></iframe>
+                <h3>Player 2 (Guesser Grid)</h3>
+                <div id="card-grid">
+                    {% for card_item in cards|default([]) %}
+                    <div class="card{% if card_item.id in (eliminated|default([])) %} eliminated{% endif %}" id="card{{ card_item.id }}">
+                        <img src="{{ url_for('static', filename='cards/' + card_item.id|string + '.png') }}" alt="{{ card_item.name }}">
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
 
@@ -57,19 +71,15 @@
         const gameId = new URLSearchParams(window.location.search).get('game_id') || '{{ game_id }}';
         document.getElementById("game-id-display").textContent = gameId;
 
-        // Inject player iframes
-        const setIframeSources = () => {
-            document.getElementById("p1frame").src = `/player1?game_id=${gameId}`;
-            document.getElementById("p2frame").src = `/player2?game_id=${gameId}`;
-        };
-        setIframeSources();
-
         // --- Socket setup ---------------------------------------------
         const socket = io();
         socket.emit("join", {game_id: gameId, role: "moderator", participant_id: window.participantId});
 
         const transcriptDiv = document.getElementById("transcript");
         const chatInput = document.getElementById("chat-input");
+
+        // Track seen joins by role to avoid duplicate join messages in UI
+        const seenJoins = new Set();
 
         // --- Helpers --------------------------------------------------
         function appendMessage(msg, style = "") {
@@ -90,8 +100,22 @@
 
         // --- Socket events --------------------------------------------
         socket.on("chat", data => appendMessage(`<b>${data.role}:</b> ${data.text}`));
-        socket.on("system", data => appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;"));
-        socket.on("eliminate", data => appendMessage(`<em>Eliminated cards: ${data.eliminated.join(", ")}</em>`, "color:red;"));
+        socket.on("system", data => {
+            if (data.action === "join") {
+                const key = `${data.role}`;
+                if (seenJoins.has(key)) return;
+                seenJoins.add(key);
+            }
+            appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;");
+        });
+        socket.on("eliminate", data => {
+            const eliminatedIds = data.eliminated || [];
+            appendMessage(`<em>Eliminated cards: ${eliminatedIds.join(", ")}</em>`, "color:red;");
+            eliminatedIds.forEach(id => {
+                const cardEl = document.getElementById(`card${id}`);
+                if (cardEl) cardEl.classList.add("eliminated");
+            });
+        });
 
         // --- Voice (WebRTC) -------------------------------------------
         setupVoice({
