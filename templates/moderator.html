@@ -46,12 +46,14 @@
             </div>
         </div>
 
-        <h3 class="transcript-title">Transcript</h3>
-        <div id="transcript"></div>
+        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+            <h3 class="chat-title">Chat</h3>
+            <div id="transcript"></div>
 
-        <div class="chat-bar wide">
-            <input type="text" id="chat-input" placeholder="Send a message to all participants">
-            <button id="send-chat">Send</button>
+            <div class="chat-bar">
+                <input type="text" id="chat-input" placeholder="Send a message to all participants">
+                <button id="send-chat">Send</button>
+            </div>
         </div>
 
         <div class="voice-controls" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
@@ -91,12 +93,20 @@
         }
 
         // --- Chat send ------------------------------------------------
-        document.getElementById("send-chat").onclick = () => {
+        const sendChat = () => {
             const text = chatInput.value.trim();
             if (!text) return;
             socket.emit("chat", {game_id: gameId, role: "moderator", text, participant_id: window.participantId});
             chatInput.value = "";
         };
+
+        document.getElementById("send-chat").onclick = sendChat;
+        chatInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                sendChat();
+            }
+        });
 
         // --- Socket events --------------------------------------------
         socket.on("chat", data => appendMessage(`<b>${data.role}:</b> ${data.text}`));
