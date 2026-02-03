@@ -82,6 +82,61 @@
 
         // Track seen joins by role to avoid duplicate join messages in UI
         const seenJoins = new Set();
+        
+        // Track game end state
+        let gameEnded = false;
+        
+        // Check game status
+        async function checkGameStatus() {
+            try {
+                const params = new URLSearchParams();
+                params.append('game_id', gameId);
+                const res = await fetch(`/game/status?${params}`);
+                const data = await res.json();
+                
+                if (data.state === 'ENDED' || data.state === 'CLOSED') {
+                    if (!gameEnded) {
+                        gameEnded = true;
+                        // Disable interactions
+                        document.getElementById('chat-input').disabled = true;
+                        document.getElementById('send-chat').disabled = true;
+                        document.getElementById('voice-toggle').disabled = true;
+                        document.getElementById('voice-toggle').style.opacity = '0.6';
+                        document.getElementById('voice-toggle').style.cursor = 'not-allowed';
+                        
+                        const endNotification = document.createElement('div');
+                        endNotification.style.cssText = 'background: #fff3cd; border: 2px solid #ffc107; padding: 20px; border-radius: 8px; margin-top: 20px; text-align: center; font-size: 1.2em; font-weight: bold; color: #856404;';
+                        
+                        if (data.state === 'CLOSED' && data.message) {
+                            // Session reset - show "no longer active" message
+                            endNotification.innerHTML = '🔒 This game session is no longer active.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                        } else {
+                            // Game ended normally
+                            endNotification.innerHTML = '✅ Game has ended.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                        }
+                        
+                        const main = document.querySelector('main');
+                        if (main && !document.querySelector('[data-game-ended]')) {
+                            main.appendChild(endNotification);
+                            endNotification.setAttribute('data-game-ended', 'true');
+                        }
+                    }
+                    
+                    // Stop polling after game ends
+                    if (gameStatusInterval) {
+                        clearInterval(gameStatusInterval);
+                    }
+                }
+            } catch (err) {
+                console.error('Game status check failed:', err);
+            }
+        }
+        
+        // Check immediately on load
+        checkGameStatus();
+        
+        // Set up polling every 2 seconds
+        const gameStatusInterval = setInterval(checkGameStatus, 2000);
 
         // --- Helpers --------------------------------------------------
         function appendMessage(msg, style = "") {

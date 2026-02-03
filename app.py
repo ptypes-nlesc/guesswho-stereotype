@@ -36,6 +36,18 @@ VOICE_PARTICIPANTS = {}
 # Role binding store: {(game_id, participant_id): role}
 PARTICIPANT_ROLES = {}
 
+# Game state management
+# Game states: CLOSED -> OPEN -> READY -> IN_PROGRESS -> ENDED -> CLOSED (loop)
+GAME_STATES = {
+    # game_id: {
+    #   'state': 'CLOSED'|'OPEN'|'READY'|'IN_PROGRESS'|'ENDED',
+    #   'waiting_participants': [(participant_id, timestamp), ...],
+    #   'player1_id': str,
+    #   'player2_id': str
+    # }
+}
+CURRENT_SESSION_GAME_ID = None  # The active game session
+
 
 # ---------------------------------------------------------------------
 # Database utilities
@@ -279,6 +291,16 @@ def check_role_binding(game_id, participant_id, required_role):
     if not participant_id:
         return True, None  # No participant_id — allow (backward compat)
     
+    # For non-moderator roles, verify game belongs to current session
+    if required_role != "moderator":
+        if not CURRENT_SESSION_GAME_ID or game_id != CURRENT_SESSION_GAME_ID:
+            return False, "This game session is no longer active"
+    else:
+        # For moderators, verify game_id matches their session
+        moderator_game_id = session.get('moderator_session_game_id')
+        if not moderator_game_id or game_id != moderator_game_id:
+            return False, "This game session is no longer active"
+    
     # Check DB for existing binding
     bound_role = get_participant_binding(game_id, participant_id)
     
@@ -298,6 +320,8 @@ def dashboard():
     """Moderator dashboard."""
     if not session.get("moderator"):
         return redirect(url_for("index"))
+    # Clear any previous session when moderator goes to dashboard
+    session['moderator_session_game_id'] = None
     return render_template("dashboard.html")
 
 
@@ -424,6 +448,370 @@ def eliminate_card():
         to=f"game:{game_id}",
     )
     print(f"Game {game_id}: card {card_id} eliminated")
+    return jsonify({"status": "ok"})
+
+
+# ---------------------------------------------------------------------
+# Game Entry Control Routes
+# ---------------------------------------------------------------------
+@app.route("/game/status")
+def game_status():
+    """Check game state for active players."""
+    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    participant_id = request.args.get("participant_id")
+    
+    if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
+        return jsonify({
+            "state": "CLOSED",
+            "is_player": False,
+            "message": "This game session is no longer active"
+        })
+    
+    # Only allow access to the current active session game
+    if game_id != CURRENT_SESSION_GAME_ID:
+        return jsonify({
+            "state": "CLOSED",
+            "is_player": False,
+            "message": "This game session is no longer active"
+        })
+    
+    game_state = GAME_STATES[CURRENT_SESSION_GAME_ID]
+    
+    return jsonify({
+        "game_id": CURRENT_SESSION_GAME_ID,
+        "state": game_state['state'],
+        "is_player": participant_id in [game_state.get('player1_id'), game_state.get('player2_id')]
+    })
+
+
+@app.route("/join")
+def join_page():
+    """Static join URL for participants."""
+    return render_template("waiting.html")
+
+
+@app.route("/join/status")
+def join_status():
+    """Check if participant can join and get current status."""
+    global CURRENT_SESSION_GAME_ID, GAME_STATES
+    
+    participant_id = request.args.get("participant_id")
+    
+    # If participant already in a game, return their role and game_id
+    if participant_id:
+        for game_id, state in GAME_STATES.items():
+            if state.get('player1_id') == participant_id:
+                if state['state'] == 'IN_PROGRESS':
+                    return jsonify({
+                        "status": "in_game",
+                        "role": "player1",
+                        "game_id": game_id
+                    })
+            elif state.get('player2_id') == participant_id:
+                if state['state'] == 'IN_PROGRESS':
+                    return jsonify({
+                        "status": "in_game",
+                        "role": "player2",
+                        "game_id": game_id
+                    })
+    
+    # Check current session status
+    if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
+        return jsonify({"status": "closed", "message": "Entry is currently closed"})
+    
+    game_state = GAME_STATES[CURRENT_SESSION_GAME_ID]
+    
+    if game_state['state'] == 'CLOSED':
+        return jsonify({"status": "closed", "message": "Entry is currently closed"})
+    elif game_state['state'] == 'OPEN':
+        waiting_count = len(game_state.get('waiting_participants', []))
+        return jsonify({
+            "status": "open",
+            "message": f"Entry is open. {waiting_count}/2 participants waiting",
+            "waiting_count": waiting_count
+        })
+    elif game_state['state'] == 'READY':
+        # Check if this participant is one of the two selected
+        if participant_id and participant_id in [game_state.get('player1_id'), game_state.get('player2_id')]:
+            return jsonify({
+                "status": "ready",
+                "message": "Waiting for moderator to start game"
+            })
+        else:
+            return jsonify({
+                "status": "closed",
+                "message": "Entry is closed (game is ready to start)"
+            })
+    elif game_state['state'] == 'IN_PROGRESS':
+        return jsonify({"status": "closed", "message": "Game in progress"})
+    elif game_state['state'] == 'ENDED':
+        return jsonify({"status": "closed", "message": "Game has ended"})
+    
+    return jsonify({"status": "closed", "message": "Unknown state"})
+
+
+@app.route("/join/enter", methods=["POST"])
+def join_enter():
+    """Participant attempts to enter the waiting room."""
+    global CURRENT_SESSION_GAME_ID, GAME_STATES
+    
+    if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
+        return jsonify({"status": "error", "message": "No active session"}), 400
+    
+    game_state = GAME_STATES[CURRENT_SESSION_GAME_ID]
+    
+    if game_state['state'] != 'OPEN':
+        return jsonify({"status": "error", "message": "Entry is not open"}), 400
+    
+    # Generate participant ID
+    participant_id = str(uuid.uuid4())
+    
+    # Add to waiting list
+    if 'waiting_participants' not in game_state:
+        game_state['waiting_participants'] = []
+    
+    if len(game_state['waiting_participants']) >= 2:
+        return jsonify({"status": "error", "message": "Capacity reached"}), 400
+    
+    game_state['waiting_participants'].append({
+        'id': participant_id,
+        'timestamp': datetime.datetime.now().isoformat()
+    })
+    
+    print(f"Participant {participant_id} entered waiting room. Count: {len(game_state['waiting_participants'])}/2")
+    
+    # Auto-close if capacity reached
+    if len(game_state['waiting_participants']) == 2:
+        game_state['state'] = 'READY'
+        # Assign roles
+        game_state['player1_id'] = game_state['waiting_participants'][0]['id']
+        game_state['player2_id'] = game_state['waiting_participants'][1]['id']
+        
+        # Bind roles in database
+        set_participant_binding(CURRENT_SESSION_GAME_ID, game_state['player1_id'], 'player1')
+        set_participant_binding(CURRENT_SESSION_GAME_ID, game_state['player2_id'], 'player2')
+        
+        record_event("system", "entry_closed", CURRENT_SESSION_GAME_ID, text="Capacity reached (2/2)")
+        print(f"Game {CURRENT_SESSION_GAME_ID} ready with 2 participants")
+    
+    return jsonify({
+        "status": "ok",
+        "participant_id": participant_id,
+        "waiting_count": len(game_state['waiting_participants'])
+    })
+
+
+@app.route("/moderator/control")
+def moderator_control():
+    """Moderator control panel."""
+    if not session.get("moderator"):
+        return redirect(url_for("index"))
+    return render_template("moderator_control.html")
+
+
+@app.route("/moderator/control/status")
+def moderator_control_status():
+    """Get current game state for moderator."""
+    global GAME_STATES, CURRENT_SESSION_GAME_ID
+    
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    # Use moderator's session to track their current game, fall back to global
+    moderator_game_id = session.get('moderator_session_game_id')
+    
+    # If moderator doesn't have a game_id in session, check the global
+    if not moderator_game_id:
+        moderator_game_id = CURRENT_SESSION_GAME_ID
+    
+    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+        return jsonify({
+            "status": "no_session",
+            "message": "No active session"
+        })
+    
+    game_state = GAME_STATES[moderator_game_id]
+    
+    # If session is CLOSED, clear it so moderator starts fresh
+    if game_state['state'] == 'CLOSED':
+        session['moderator_session_game_id'] = None
+        return jsonify({
+            "status": "no_session",
+            "message": "No active session"
+        })
+    
+    return jsonify({
+        "status": "ok",
+        "game_id": moderator_game_id,
+        "state": game_state['state'],
+        "waiting_count": len(game_state.get('waiting_participants', [])),
+        "player1_id": game_state.get('player1_id'),
+        "player2_id": game_state.get('player2_id')
+    })
+
+
+@app.route("/moderator/control/open", methods=["POST"])
+def moderator_open_entry():
+    """Moderator opens entry for participants."""
+    global GAME_STATES, CURRENT_SESSION_GAME_ID
+    
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    moderator_game_id = session.get('moderator_session_game_id')
+    
+    # Create new session if none exists or previous is ended/closed
+    if not moderator_game_id or moderator_game_id not in GAME_STATES or \
+       GAME_STATES.get(moderator_game_id, {}).get('state') in ['ENDED', 'IN_PROGRESS', 'CLOSED']:
+        # Create new game
+        game_id = uuid.uuid4().hex
+        chosen_card = random.choice(CARDS)["id"]
+        
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
+                (game_id, datetime.datetime.now().isoformat(), chosen_card),
+            )
+            conn.commit()
+        
+        moderator_game_id = game_id
+        session['moderator_session_game_id'] = game_id
+        GAME_STATES[game_id] = {
+            'state': 'OPEN',
+            'waiting_participants': [],
+            'player1_id': None,
+            'player2_id': None
+        }
+        
+        # Update the global for participant joins
+        CURRENT_SESSION_GAME_ID = game_id
+        globals()['CURRENT_SESSION_GAME_ID'] = game_id
+        
+        record_event("system", "session_created", game_id, text=f"New session created, entry opened")
+        print(f"✅ Created new session {game_id} and opened entry")
+    else:
+        # Open existing session - should not happen if moderator resets properly
+        # but as a safety measure, ensure we're using the right game
+        game_state = GAME_STATES[moderator_game_id]
+        if game_state['state'] == 'CLOSED':
+            game_state['state'] = 'OPEN'
+            game_state['waiting_participants'] = []
+            # Also update global
+            CURRENT_SESSION_GAME_ID = moderator_game_id
+            globals()['CURRENT_SESSION_GAME_ID'] = moderator_game_id
+            record_event("system", "entry_opened", moderator_game_id)
+            print(f"✅ Opened entry for session {moderator_game_id}")
+    
+    return jsonify({"status": "ok", "game_id": moderator_game_id})
+
+
+@app.route("/moderator/control/close", methods=["POST"])
+def moderator_close_entry():
+    """Moderator closes entry for participants."""
+    global GAME_STATES
+    
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    moderator_game_id = session.get('moderator_session_game_id')
+    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+        return jsonify({"status": "error", "message": "No active session"}), 400
+    
+    game_state = GAME_STATES[moderator_game_id]
+    game_state['state'] = 'CLOSED'
+    
+    record_event("system", "entry_closed", moderator_game_id, text="Manually closed by moderator")
+    print(f"🔒 Closed entry for session {moderator_game_id}")
+    
+    return jsonify({"status": "ok"})
+
+
+@app.route("/moderator/control/start", methods=["POST"])
+def moderator_start_game():
+    """Moderator starts the game (transitions READY -> IN_PROGRESS)."""
+    global GAME_STATES, CURRENT_SESSION_GAME_ID
+    
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    moderator_game_id = session.get('moderator_session_game_id')
+    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+        return jsonify({"status": "error", "message": "No active session"}), 400
+    
+    game_state = GAME_STATES[moderator_game_id]
+    
+    if game_state['state'] != 'READY':
+        return jsonify({"status": "error", "message": f"Cannot start game in state: {game_state['state']}"}), 400
+    
+    if not game_state.get('player1_id') or not game_state.get('player2_id'):
+        return jsonify({"status": "error", "message": "Missing player IDs"}), 400
+    
+    game_state['state'] = 'IN_PROGRESS'
+    
+    # Update global for participant joins
+    CURRENT_SESSION_GAME_ID = moderator_game_id
+    
+    record_event("system", "game_started", moderator_game_id, 
+                 text=f"Game started with P1={game_state['player1_id'][:8]}... P2={game_state['player2_id'][:8]}...")
+    print(f"🎮 Started game {moderator_game_id}")
+    
+    return jsonify({
+        "status": "ok",
+        "game_id": moderator_game_id,
+        "player1_url": f"/player1?game_id={moderator_game_id}&participant_id={game_state['player1_id']}",
+        "player2_url": f"/player2?game_id={moderator_game_id}&participant_id={game_state['player2_id']}",
+        "moderator_url": f"/moderator?game_id={moderator_game_id}"
+    })
+
+
+@app.route("/moderator/control/end", methods=["POST"])
+def moderator_end_game():
+    """Moderator ends the game (transitions IN_PROGRESS -> ENDED)."""
+    global GAME_STATES, CURRENT_SESSION_GAME_ID
+    
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    moderator_game_id = session.get('moderator_session_game_id')
+    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+        return jsonify({"status": "error", "message": "No active session"}), 400
+    
+    game_state = GAME_STATES[moderator_game_id]
+    game_state['state'] = 'ENDED'
+    
+    record_event("system", "game_ended", moderator_game_id)
+    print(f"🏁 Ended game {moderator_game_id}")
+    
+    return jsonify({"status": "ok"})
+
+
+@app.route("/moderator/control/reset", methods=["POST"])
+def moderator_reset_session():
+    """Moderator resets session (transitions ENDED -> CLOSED)."""
+    global GAME_STATES, CURRENT_SESSION_GAME_ID
+    
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    moderator_game_id = session.get('moderator_session_game_id')
+    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+        return jsonify({"status": "error", "message": "No active session"}), 400
+    
+    game_state = GAME_STATES[moderator_game_id]
+    game_state['state'] = 'CLOSED'
+    game_state['waiting_participants'] = []
+    game_state['player1_id'] = None
+    game_state['player2_id'] = None
+    
+    # Clear the global session tracker so participants see "entry closed"
+    CURRENT_SESSION_GAME_ID = None
+    globals()['CURRENT_SESSION_GAME_ID'] = None
+    session['moderator_session_game_id'] = None
+    
+    record_event("system", "session_reset", moderator_game_id)
+    print(f"🔄 Reset session {moderator_game_id}")
+    
     return jsonify({"status": "ok"})
 
 
