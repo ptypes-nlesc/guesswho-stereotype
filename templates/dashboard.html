@@ -14,9 +14,31 @@
 
     <main class="dashboard-main">
         <h2>Moderator Dashboard</h2>
-        <p>Click below to start a new game session.</p>
+        <p>Choose how you want to run the game:</p>
 
-        <button id="start-btn" class="primary-btn">🎲 Start New Game</button>
+        <div style="margin: 30px 0; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
+            <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 400px;">
+                <h3>🎮 Controlled Entry Mode (Recommended)</h3>
+                <p style="text-align: left; color: #666;">
+                    Use the control panel to manage participant entry with a static join URL. 
+                    Perfect for controlled research sessions with sequential participant pairs.
+                </p>
+                <a href="/moderator/control" class="link-btn" style="display: inline-block; margin-top: 15px;">
+                    Open Control Panel
+                </a>
+            </div>
+
+            <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 400px;">
+                <h3>🎲 Quick Game Mode</h3>
+                <p style="text-align: left; color: #666;">
+                    Create a game instantly with pre-generated URLs. 
+                    Use this for quick testing or when you need immediate access.
+                </p>
+                <button id="start-btn" class="primary-btn" style="margin-top: 15px;">
+                    Create Quick Game
+                </button>
+            </div>
+        </div>
 
         <div id="links" class="dashboard-links"></div>
 

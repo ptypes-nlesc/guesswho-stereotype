@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Join Game – GuessWho Stereotype</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .waiting-container {
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .status-message {
+            font-size: 1.2em;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .status-closed {
+            background: #fee;
+            color: #c33;
+        }
+        .status-open {
+            background: #efe;
+            color: #3a3;
+        }
+        .status-ready {
+            background: #ffa;
+            color: #880;
+        }
+        .status-waiting {
+            background: #eef;
+            color: #338;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .join-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.1em;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .join-btn:hover {
+            background: #45a049;
+        }
+        .join-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="height:80px;">
+    </header>
+
+    <div class="waiting-container">
+        <h1>🎮 GuessWho Stereotype</h1>
+        <p>Welcome to the game session!</p>
+
+        <div id="status-display">
+            <div class="spinner"></div>
+            <p>Checking status...</p>
+        </div>
+
+        <button id="join-btn" class="join-btn" style="display: none;">Join Game</button>
+    </div>
+
+    <script>
+        let participantId = localStorage.getItem('participant_id');
+        let checkInterval;
+        let hasJoined = false;
+
+        async function checkStatus() {
+            try {
+                const params = new URLSearchParams();
+                if (participantId) {
+                    params.append('participant_id', participantId);
+                }
+                
+                const res = await fetch(`/join/status?${params}`);
+                const data = await res.json();
+
+                const display = document.getElementById('status-display');
+                const joinBtn = document.getElementById('join-btn');
+
+                if (data.status === 'in_game') {
+                    // Participant is already in a game - redirect
+                    clearInterval(checkInterval);
+                    display.innerHTML = `
+                        <div class="status-message status-open">
+                            🎮 Game starting! Redirecting to your role...
+                        </div>
+                        <div class="spinner"></div>
+                    `;
+                    setTimeout(() => {
+                        window.location.href = `/${data.role}?game_id=${data.game_id}&participant_id=${participantId}`;
+                    }, 1000);
+                } else if (data.status === 'open') {
+                    display.innerHTML = `
+                        <div class="status-message status-open">
+                            ✅ Entry is open!<br>
+                            ${data.waiting_count}/2 participants waiting
+                        </div>
+                    `;
+                    if (!hasJoined) {
+                        joinBtn.style.display = 'block';
+                        joinBtn.disabled = false;
+                    }
+                } else if (data.status === 'ready') {
+                    display.innerHTML = `
+                        <div class="status-message status-ready">
+                            ⏳ Waiting for moderator to start the game...
+                        </div>
+                        <div class="spinner"></div>
+                    `;
+                    joinBtn.style.display = 'none';
+                } else if (data.status === 'closed') {
+                    display.innerHTML = `
+                        <div class="status-message status-closed">
+                            🔒 ${data.message}
+                        </div>
+                        <p>Please wait for the moderator to open entry.</p>
+                        <div class="spinner"></div>
+                    `;
+                    joinBtn.style.display = 'none';
+                } else {
+                    display.innerHTML = `
+                        <div class="status-message status-closed">
+                            ❓ ${data.message || 'Unknown status'}
+                        </div>
+                    `;
+                    joinBtn.style.display = 'none';
+                }
+            } catch (err) {
+                console.error('Status check failed:', err);
+                document.getElementById('status-display').innerHTML = `
+                    <div class="status-message status-closed">
+                        ⚠️ Connection error. Retrying...
+                    </div>
+                `;
+            }
+        }
+
+        document.getElementById('join-btn').onclick = async () => {
+            const joinBtn = document.getElementById('join-btn');
+            joinBtn.disabled = true;
+            joinBtn.textContent = 'Joining...';
+
+            try {
+                const res = await fetch('/join/enter', { method: 'POST' });
+                const data = await res.json();
+
+                if (data.status === 'ok') {
+                    participantId = data.participant_id;
+                    localStorage.setItem('participant_id', participantId);
+                    hasJoined = true;
+                    
+                    document.getElementById('status-display').innerHTML = `
+                        <div class="status-message status-waiting">
+                            ✅ You're in the waiting room!<br>
+                            ${data.waiting_count}/2 participants
+                        </div>
+                        <div class="spinner"></div>
+                        <p>Waiting for ${2 - data.waiting_count} more participant(s)...</p>
+                    `;
+                    joinBtn.style.display = 'none';
+                } else {
+                    alert(data.message || 'Failed to join');
+                    joinBtn.disabled = false;
+                    joinBtn.textContent = 'Join Game';
+                }
+            } catch (err) {
+                console.error('Join failed:', err);
+                alert('Failed to join. Please try again.');
+                joinBtn.disabled = false;
+                joinBtn.textContent = 'Join Game';
+            }
+        };
+
+        // Start checking status
+        checkStatus();
+        checkInterval = setInterval(checkStatus, 2000);  // Check every 2 seconds
+    </script>
+</body>
+
+</html>
