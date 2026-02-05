@@ -291,6 +291,16 @@ def check_role_binding(game_id, participant_id, required_role):
     if not participant_id:
         return True, None  # No participant_id — allow (backward compat)
     
+    # Check DB for existing binding first
+    bound_role = get_participant_binding(game_id, participant_id)
+    
+    if bound_role:
+        # Binding exists - allow access if roles match (even if session is closed)
+        if bound_role != required_role:
+            return False, f"Forbidden: participant is bound to {bound_role}, not {required_role}"
+        return True, None
+    
+    # No binding exists yet - only allow if session is active
     # For non-moderator roles, verify game belongs to current session
     if required_role != "moderator":
         if not CURRENT_SESSION_GAME_ID or game_id != CURRENT_SESSION_GAME_ID:
@@ -301,17 +311,8 @@ def check_role_binding(game_id, participant_id, required_role):
         if not moderator_game_id or game_id != moderator_game_id:
             return False, "This game session is no longer active"
     
-    # Check DB for existing binding
-    bound_role = get_participant_binding(game_id, participant_id)
-    
-    if bound_role:
-        # Binding exists
-        if bound_role != required_role:
-            return False, f"Forbidden: participant is bound to {bound_role}, not {required_role}"
-    else:
-        # First access: create binding in DB
-        set_participant_binding(game_id, participant_id, required_role)
-    
+    # First access during active session: create binding in DB
+    set_participant_binding(game_id, participant_id, required_role)
     return True, None
 
 
@@ -334,7 +335,11 @@ def player1():
     # Enforce role binding
     allowed, message = check_role_binding(game_id, participant_id, "player1")
     if not allowed:
-        return message, 403
+        # Still render the page so they see the notification on screen
+        chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
+        return render_template(
+            "player1.html", card={"id": chosen, "name": f"Card {chosen}"}, game_id=game_id
+        )
     
     chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
     return render_template(
@@ -351,7 +356,11 @@ def player2():
     # Enforce role binding
     allowed, message = check_role_binding(game_id, participant_id, "player2")
     if not allowed:
-        return message, 403
+        # Still render the page so they see the notification on screen
+        eliminated = get_eliminated_cards(game_id)
+        return render_template(
+            "player2.html", cards=CARDS, eliminated=eliminated, game_id=game_id
+        )
     
     eliminated = get_eliminated_cards(game_id)
     return render_template(
@@ -368,7 +377,16 @@ def moderator():
     # Enforce role binding
     allowed, message = check_role_binding(game_id, participant_id, "moderator")
     if not allowed:
-        return message, 403
+        # Still render the page so they see the notification on screen
+        chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
+        eliminated = get_eliminated_cards(game_id)
+        return render_template(
+            "moderator.html",
+            game_id=game_id,
+            cards=CARDS,
+            eliminated=eliminated,
+            secret_card={"id": chosen, "name": f"Card {chosen}"},
+        )
 
     chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
     eliminated = get_eliminated_cards(game_id)

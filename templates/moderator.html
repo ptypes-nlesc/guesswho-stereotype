@@ -85,6 +85,26 @@
         
         // Track game end state
         let gameEnded = false;
+
+        // --- Load chat history on page load -------------------------------
+        fetch(`/transcript?game_id=${gameId}&limit=200`)
+            .then(r => r.json())
+            .then(arr => {
+                arr.forEach(entry => {
+                    if (entry.action === 'chat' && entry.text) {
+                        appendMessage(`<b>${entry.role}:</b> ${entry.text}`);
+                    } else if (entry.action === 'join') {
+                        const key = `${entry.role}`;
+                        if (!seenJoins.has(key)) {
+                            seenJoins.add(key);
+                            appendMessage(`<em>${entry.role || 'System'} joined game ${entry.game_id}</em>`, 'color:gray;');
+                        }
+                    } else if (entry.action === 'eliminate' && entry.card) {
+                        appendMessage(`<em>Eliminated card: ${entry.card}</em>`, 'color:red;');
+                    }
+                });
+            })
+            .catch(err => console.error('Failed to load transcript:', err));
         
         // Check game status
         async function checkGameStatus() {
@@ -104,8 +124,12 @@
                         document.getElementById('voice-toggle').style.opacity = '0.6';
                         document.getElementById('voice-toggle').style.cursor = 'not-allowed';
                         
+                        // Make chat bar visually inactive
+                        document.querySelector('.chat-bar').style.opacity = '0.6';
+                        document.getElementById('send-chat').style.cursor = 'not-allowed';
+                        
                         const endNotification = document.createElement('div');
-                        endNotification.style.cssText = 'background: #fff3cd; border: 2px solid #ffc107; padding: 20px; border-radius: 8px; margin-top: 20px; text-align: center; font-size: 1.2em; font-weight: bold; color: #856404;';
+                        endNotification.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff3cd; border: 2px solid #ffc107; padding: 30px; border-radius: 8px; text-align: center; font-size: 1.2em; font-weight: bold; color: #856404; z-index: 9999; width: 90%; max-width: 500px;';
                         
                         if (data.state === 'CLOSED' && data.message) {
                             // Session reset - show "no longer active" message
