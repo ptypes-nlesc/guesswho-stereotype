@@ -5,7 +5,7 @@
 
 <img src="static/logo.png" alt="GuessWho Stereotype Research Game Logo" width="200">
 
-"XPOSED" is an interactive web application inspired by the classic “Guess Who?” game, designed to explore how people express stereotypes. Instead of discussing stereotypes explicitly, players reveal their reasoning through the process of asking yes/no questions and eliminating characters — while a moderator observes and records both choices and dialogue for analysis.
+"XPOSED" is an interactive web application inspired by the classic “Guess Who?” game, designed to explore how people express stereotypes. Instead of discussing stereotypes explicitly, players reveal their reasoning through the process of asking yes/no questions and eliminating characters — while a moderator observes and asks clarifying questions.
 
 
 ---
@@ -27,7 +27,7 @@
 | **Frontend**       | HTML + JavaScript (Socket.IO)         |
 | **Backend**        | Flask (Python 3.13) + Flask-SocketIO |
 | **Database**       | SQLite 3            |
-| **Deployment**     | Local (MVP) → web hosting later       |
+| **Deployment**     | Local (MVP) → AKS later       |
 | **Audio** | WebRTC              |
 
 ---
@@ -39,7 +39,6 @@
 
 python -m venv venv
 source venv/bin/activate  
-
 pip install -r requirements.txt
 ```
 
@@ -58,9 +57,11 @@ http://127.0.0.1:5000/
 - Click **"Open Entry"** to allow participants to join
 - Participants join via the waiting page: `http://127.0.0.1:5000/join`
 - Once 2 participants have joined, click **"Start Game"**
-- Shareable links for Player 1, Player 2, and Moderator view are displayed
 - Monitor the game session in real-time
 - Click **"End Game"** when finished
 - Click **"Reset Session"** to prepare for the next pair of participants
 
 ---
+
+<img src="static/example2.png" alt="GuessWho Stereotype Research Game Logo" width="400">
+<img src="static/example.png" alt="GuessWho Stereotype Research Game Logo" width="400">
