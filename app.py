@@ -1,11 +1,15 @@
+import csv
 import datetime
+import io
 import os
 import random
+import secrets
 import sqlite3
 import uuid
 from flask import (
     Flask,
     jsonify,
+    make_response,
     render_template,
     request,
     session,
@@ -120,6 +124,17 @@ def init_db():
                 role TEXT,
                 created_at TEXT,
                 PRIMARY KEY (game_id, participant_id)
+            )
+            """
+        )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS access_tokens (
+                token TEXT PRIMARY KEY,
+                created_at TEXT,
+                expires_at TEXT,
+                used_at TEXT,
+                participant_id TEXT
             )
             """
         )
@@ -504,8 +519,35 @@ def game_status():
 
 @app.route("/join")
 def join_page():
-    """Static join URL for participants."""
-    return render_template("waiting.html")
+    """Token-based join page for participants."""
+    token = request.args.get("token")
+    
+    if not token:
+        return render_template("waiting.html", error="No token provided. You need a valid invitation link to join.")
+    
+    # Validate token
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT token, expires_at, used_at, participant_id FROM access_tokens WHERE token = ?",
+            (token,)
+        )
+        token_row = c.fetchone()
+    
+    if not token_row:
+        return render_template("waiting.html", error="Invalid token. Please check your invitation link.")
+    
+    # Check if token is expired
+    expires_at = datetime.datetime.fromisoformat(token_row[1])
+    if datetime.datetime.now() > expires_at:
+        return render_template("waiting.html", error="This invitation link has expired.")
+    
+    # Check if token has been used
+    if token_row[2]:  # used_at is not NULL
+        return render_template("waiting.html", error="This token has already been used and cannot be reused.")
+    
+    # Token is valid and unused - render waiting page with token
+    return render_template("waiting.html", token=token)
 
 
 @app.route("/join/status")
@@ -570,8 +612,47 @@ def join_status():
 
 @app.route("/join/enter", methods=["POST"])
 def join_enter():
-    """Participant attempts to enter the waiting room."""
+    """Participant attempts to enter the waiting room using a token."""
     global CURRENT_SESSION_GAME_ID, GAME_STATES
+    
+    data = request.get_json() or {}
+    token = data.get("token")
+    
+    if not token:
+        return jsonify({"status": "error", "message": "No token provided"}), 400
+    
+    # Validate token
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT token, expires_at, used_at, participant_id FROM access_tokens WHERE token = ?",
+            (token,)
+        )
+        token_row = c.fetchone()
+    
+    if not token_row:
+        return jsonify({"status": "error", "message": "Invalid token"}), 400
+    
+    # Check if token is expired
+    expires_at = datetime.datetime.fromisoformat(token_row[1])
+    if datetime.datetime.now() > expires_at:
+        return jsonify({"status": "error", "message": "Token has expired"}), 400
+    
+    # Check if token has been used
+    if token_row[2]:  # used_at is not NULL
+        # Token already used - reject with error
+        return jsonify({"status": "error", "message": "This token has already been used and cannot be reused"}), 400
+    else:
+        # Token not yet used - generate participant_id and mark token as used
+        participant_id = str(uuid.uuid4())
+        
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "UPDATE access_tokens SET used_at = ?, participant_id = ? WHERE token = ?",
+                (datetime.datetime.now().isoformat(), participant_id, token)
+            )
+            conn.commit()
     
     if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
         return jsonify({"status": "error", "message": "No active session"}), 400
@@ -581,12 +662,17 @@ def join_enter():
     if game_state['state'] != 'OPEN':
         return jsonify({"status": "error", "message": "Entry is not open"}), 400
     
-    # Generate participant ID
-    participant_id = str(uuid.uuid4())
-    
-    # Add to waiting list
+    # Add to waiting list if not already there
     if 'waiting_participants' not in game_state:
         game_state['waiting_participants'] = []
+    
+    # Check if participant is already in waiting list
+    if any(p['id'] == participant_id for p in game_state['waiting_participants']):
+        return jsonify({
+            "status": "ok",
+            "participant_id": participant_id,
+            "waiting_count": len(game_state['waiting_participants'])
+        })
     
     if len(game_state['waiting_participants']) >= 2:
         return jsonify({"status": "error", "message": "Capacity reached"}), 400
@@ -831,6 +917,57 @@ def moderator_reset_session():
     print(f"🔄 Reset session {moderator_game_id}")
     
     return jsonify({"status": "ok"})
+
+
+@app.route("/moderator/tokens/generate", methods=["POST"])
+def moderator_generate_tokens():
+    """Generate access tokens for participant invitations."""
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    data = request.get_json() or {}
+    count = data.get("count", 1)
+    
+    # Validate count
+    if not isinstance(count, int) or count < 1 or count > 100:
+        return jsonify({"status": "error", "message": "Count must be between 1 and 100"}), 400
+    
+    # Generate tokens (30 day expiration)
+    tokens = []
+    created_at = datetime.datetime.now().isoformat()
+    expires_at = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
+    
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        for _ in range(count):
+            token = secrets.token_urlsafe(32)
+            c.execute(
+                "INSERT INTO access_tokens (token, created_at, expires_at, used_at, participant_id) VALUES (?, ?, ?, NULL, NULL)",
+                (token, created_at, expires_at)
+            )
+            tokens.append(token)
+        conn.commit()
+    
+    # Generate CSV content
+    output = io.StringIO()
+    csv_writer = csv.writer(output)
+    csv_writer.writerow(['join_url'])
+    
+    # Use request.host_url to get the base URL
+    base_url = request.host_url.rstrip('/')
+    for token in tokens:
+        join_url = f"{base_url}/join?token={token}"
+        csv_writer.writerow([join_url])
+    
+    # Create CSV response
+    csv_content = output.getvalue()
+    response = make_response(csv_content)
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Content-Disposition'] = f'attachment; filename=access_tokens_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+    
+    record_event("moderator", "tokens_generated", "system", text=f"Generated {count} tokens")
+    
+    return response
 
 
 # ---------------------------------------------------------------------

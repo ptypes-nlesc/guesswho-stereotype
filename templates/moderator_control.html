@@ -174,7 +174,8 @@
         <div class="info-section">
             <h3>📋 Instructions</h3>
             <ol>
-                <li><strong>Open Entry:</strong> Allow participants to join via the static join URL</li>
+                <li><strong>Generate Tokens:</strong> Create invitation links for participants</li>
+                <li><strong>Open Entry:</strong> Allow participants to join via their unique links</li>
                 <li><strong>Wait:</strong> Exactly 2 participants must join (entry auto-closes)</li>
                 <li><strong>Start Game:</strong> Roles are assigned automatically and participants are redirected</li>
                 <li><strong>End Game:</strong> When game concludes, end the session</li>
@@ -182,13 +183,21 @@
             </ol>
         </div>
 
-        <div class="info-section" id="join-url-section" style="display: none;">
-            <h3>🔗 Static Join URL</h3>
-            <p>Share this URL with participants in advance:</p>
-            <div class="url-box" id="join-url" onclick="copyJoinUrl()">
-                Loading...
+        <div class="info-section">
+            <h3>🎟️ Generate Access Tokens</h3>
+            <p>Create unique invitation links for participants (valid for 30 days):</p>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
+                <label for="token-count">Number of tokens:</label>
+                <input type="number" id="token-count" min="1" max="100" value="10" 
+                       style="padding: 8px; width: 80px; border: 1px solid #ddd; border-radius: 4px;">
+                <button id="btn-generate-tokens" class="control-btn btn-open" 
+                        style="flex: initial; min-width: 180px;">
+                    🎟️ Generate & Download
+                </button>
             </div>
-            <small>Click to copy to clipboard</small>
+            <small style="color: #666; margin-top: 10px; display: block;">
+                Tokens are single-use and include a unique join URL. Download as CSV for distribution.
+            </small>
         </div>
 
         <div class="info-section" id="participant-section" style="display: none;">
@@ -213,22 +222,6 @@
     <script>
         let currentState = null;
         let currentGameId = null;
-
-        // Set join URL
-        const joinUrl = window.location.origin + '/join';
-        document.getElementById('join-url').textContent = joinUrl;
-        document.getElementById('join-url-section').style.display = 'block';
-
-        function copyJoinUrl() {
-            navigator.clipboard.writeText(joinUrl).then(() => {
-                const box = document.getElementById('join-url');
-                const originalBg = box.style.background;
-                box.style.background = '#4CAF50';
-                setTimeout(() => {
-                    box.style.background = originalBg;
-                }, 500);
-            });
-        }
 
         async function updateStatus() {
             try {
@@ -383,6 +376,45 @@
                     updateStatus();
                 } else {
                     alert('Failed to reset session');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('btn-generate-tokens').onclick = async () => {
+            const count = parseInt(document.getElementById('token-count').value);
+            
+            if (!count || count < 1 || count > 100) {
+                alert('Please enter a valid number of tokens (1-100)');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/moderator/tokens/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ count: count })
+                });
+                
+                if (res.ok) {
+                    // Trigger download
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `access_tokens_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                    alert(`✅ Generated ${count} tokens! Check your downloads.`);
+                } else {
+                    const data = await res.json();
+                    alert('Failed to generate tokens: ' + (data.message || 'Unknown error'));
                 }
             } catch (err) {
                 alert('Error: ' + err.message);

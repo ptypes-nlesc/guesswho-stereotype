@@ -79,16 +79,24 @@
         <h1>🎮 GuessWho Stereotype</h1>
         <p>Welcome to the game session!</p>
 
+        {% if error %}
+        <div class="status-message status-closed">
+            ⚠️ {{ error }}
+        </div>
+        {% else %}
         <div id="status-display">
             <div class="spinner"></div>
             <p>Checking status...</p>
         </div>
 
         <button id="join-btn" class="join-btn" style="display: none;">Join Game</button>
+        {% endif %}
     </div>
 
+    {% if not error %}
     <script>
-        let participantId = localStorage.getItem('participant_id');
+        const TOKEN = "{{ token if token else '' }}";
+        let participantId = "{{ participant_id if participant_id else '' }}" || localStorage.getItem('participant_id');
         let checkInterval;
         let hasJoined = false;
 
@@ -169,7 +177,13 @@
             joinBtn.textContent = 'Joining...';
 
             try {
-                const res = await fetch('/join/enter', { method: 'POST' });
+                const res = await fetch('/join/enter', { 
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: TOKEN })
+                });
                 const data = await res.json();
 
                 if (data.status === 'ok') {
@@ -186,6 +200,19 @@
                         <p>Waiting for ${2 - data.waiting_count} more participant(s)...</p>
                     `;
                     joinBtn.style.display = 'none';
+                } else if (data.status === 'in_game') {
+                    // Token already used and participant in game
+                    participantId = data.participant_id;
+                    localStorage.setItem('participant_id', participantId);
+                    document.getElementById('status-display').innerHTML = `
+                        <div class="status-message status-open">
+                            🎮 Redirecting to your game...
+                        </div>
+                        <div class="spinner"></div>
+                    `;
+                    setTimeout(() => {
+                        window.location.href = `/${data.role}?game_id=${data.game_id}&participant_id=${participantId}`;
+                    }, 1000);
                 } else {
                     alert(data.message || 'Failed to join');
                     joinBtn.disabled = false;
@@ -203,6 +230,7 @@
         checkStatus();
         checkInterval = setInterval(checkStatus, 2000);  // Check every 2 seconds
     </script>
+    {% endif %}
 </body>
 
 </html>
