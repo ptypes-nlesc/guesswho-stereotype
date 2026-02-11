@@ -710,7 +710,7 @@ def moderator_control():
     """Moderator control panel."""
     if not session.get("moderator"):
         return redirect(url_for("index"))
-    return render_template("moderator_control.html")
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/moderator/control/status")
@@ -950,14 +950,15 @@ def moderator_generate_tokens():
     
     # Generate CSV content
     output = io.StringIO()
-    csv_writer = csv.writer(output)
-    csv_writer.writerow(['join_url'])
+    csv_writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+    output.write("sep=,\n")
+    csv_writer.writerow(["join_url"])
     
     # Use request.host_url to get the base URL
     base_url = request.host_url.rstrip('/')
     for token in tokens:
         join_url = f"{base_url}/join?token={token}"
-        csv_writer.writerow([join_url])
+        csv_writer.writerow([f'="{join_url}"'])
     
     # Create CSV response
     csv_content = output.getvalue()

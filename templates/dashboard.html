@@ -3,8 +3,151 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Moderator Dashboard – GuessWho Stereotype</title>
+    <title>Moderator Dashboard – Game Control Panel</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .control-panel {
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 30px;
+        }
+        .state-display {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .state-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1.1em;
+            margin: 10px 0;
+        }
+        .state-CLOSED { background: #ffebee; color: #c62828; }
+        .state-OPEN { background: #e8f5e9; color: #2e7d32; }
+        .state-READY { background: #fff3e0; color: #e65100; }
+        .state-IN_PROGRESS { background: #e3f2fd; color: #1565c0; }
+        .state-ENDED { background: #f3e5f5; color: #6a1b9a; }
+        .control-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+        .control-btn {
+            flex: 1;
+            min-width: 150px;
+            padding: 15px 20px;
+            font-size: 1em;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .control-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .btn-open {
+            background: #4CAF50;
+            color: white;
+        }
+        .btn-open:hover:not(:disabled) {
+            background: #45a049;
+        }
+        .btn-close {
+            background: #f44336;
+            color: white;
+        }
+        .btn-close:hover:not(:disabled) {
+            background: #da190b;
+        }
+        .btn-start {
+            background: #2196F3;
+            color: white;
+        }
+        .btn-start:hover:not(:disabled) {
+            background: #0b7dda;
+        }
+        .btn-end {
+            background: #FF9800;
+            color: white;
+        }
+        .btn-end:hover:not(:disabled) {
+            background: #e68900;
+        }
+        .btn-reset {
+            background: #9E9E9E;
+            color: white;
+        }
+        .btn-reset:hover:not(:disabled) {
+            background: #757575;
+        }
+        .info-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #ddd;
+        }
+        .participant-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .participant-card {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #2196F3;
+        }
+        .url-box {
+            background: #263238;
+            color: #aed581;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.9em;
+            margin: 10px 0;
+            word-break: break-all;
+            cursor: pointer;
+        }
+        .url-box:hover {
+            background: #37474f;
+        }
+        .log-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border: 1px solid #ddd;
+        }
+        .log-entry {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 
 <body>
@@ -12,66 +155,266 @@
         <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="height:80px;">
     </header>
 
-    <main class="dashboard-main">
-        <h2>Moderator Dashboard</h2>
-        <p>Choose how you want to run the game:</p>
+    <div class="control-panel">
+        <h1>🎮 Game Control Panel</h1>
 
-        <div style="margin: 30px 0; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
-            <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 400px;">
-                <h3>🎮 Controlled Entry Mode (Recommended)</h3>
-                <p style="text-align: left; color: #666;">
-                    Use the control panel to manage participant entry with a static join URL. 
-                    Perfect for controlled research sessions with sequential participant pairs.
-                </p>
-                <a href="/moderator/control" class="link-btn" style="display: inline-block; margin-top: 15px;">
-                    Open Control Panel
-                </a>
-            </div>
-
-            <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 400px;">
-                <h3>🎲 Quick Game Mode</h3>
-                <p style="text-align: left; color: #666;">
-                    Create a game instantly with pre-generated URLs. 
-                    Use this for quick testing or when you need immediate access.
-                </p>
-                <button id="start-btn" class="primary-btn" style="margin-top: 15px;">
-                    Create Quick Game
-                </button>
-            </div>
+        <div class="state-display" id="state-display">
+            <h2>Current Status <div class="spinner"></div></h2>
+            <div id="status-content">Loading...</div>
         </div>
 
-        <div id="links" class="dashboard-links"></div>
+        <div class="control-buttons">
+            <button id="btn-open" class="control-btn btn-open">🔓 Open Entry</button>
+            <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
+            <button id="btn-end" class="control-btn btn-end">⏹️ End Game</button>
+            <button id="btn-reset" class="control-btn btn-reset">🔄 Reset Session</button>
+        </div>
+
+        <div class="info-section">
+            <h3>📋 Instructions</h3>
+            <ol>
+                <li><strong>Generate Tokens:</strong> Create invitation links for participants</li>
+                <li><strong>Open Entry:</strong> Allow participants to join via their unique links</li>
+                <li><strong>Wait:</strong> Exactly 2 participants must join (entry auto-closes)</li>
+                <li><strong>Start Game:</strong> Roles are assigned automatically and participants are redirected</li>
+                <li><strong>End Game:</strong> When game concludes, end the session</li>
+                <li><strong>Reset:</strong> Prepare for the next pair of participants</li>
+            </ol>
+        </div>
+
+        <div class="info-section">
+            <h3>🎟️ Generate Access Tokens</h3>
+            <p>Create unique invitation links for participants (valid for 30 days):</p>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
+                <label for="token-count">Number of tokens:</label>
+                <input type="number" id="token-count" min="1" max="100" value="10" 
+                       style="padding: 8px; width: 80px; border: 1px solid #ddd; border-radius: 4px;">
+                <button id="btn-generate-tokens" class="control-btn btn-open" 
+                        style="flex: initial; min-width: 180px;">
+                    🎟️ Generate & Download
+                </button>
+            </div>
+            <small style="color: #666; margin-top: 10px; display: block;">
+                Tokens are single-use and include a unique join URL. Download as CSV for distribution.
+            </small>
+        </div>
+
+        <div class="info-section" id="participant-section" style="display: none;">
+            <h3>👥 Participants</h3>
+            <div class="participant-info" id="participant-info"></div>
+        </div>
+
+        <div class="info-section" id="game-links-section" style="display: none;">
+            <h3>🎯 Game Links</h3>
+            <div id="game-links"></div>
+        </div>
 
         <div class="footer">
             <p>You are logged in as <strong>Moderator</strong>.</p>
-            <form action="/logout" method="get">
+            <form action="/logout" method="get" style="display: inline;">
                 <button type="submit">🔒 Logout</button>
             </form>
         </div>
-    </main>
+    </div>
 
     <script>
-        document.getElementById('start-btn').onclick = async () => {
-            const res = await fetch('/create_game', {method: 'POST'});
-            const data = await res.json();
-            if (data.status === 'ok') {
-                const gid = data.game_id;
-                const p1_id = data.participant_ids.player1;
-                const p2_id = data.participant_ids.player2;
-                const mod_id = data.participant_ids.moderator;
-                document.getElementById('links').innerHTML = `
-                    <h3>🆕 New Game Created</h3>
-                    <p><b>Game ID:</b> <span class="game-id">${gid}</span></p>
-                    <div class="link-group">
-                        <a class="link-btn" href="/player1?game_id=${gid}&participant_id=${p1_id}" target="_blank">🎭 Open Player 1 (Secret Card)</a>
-                        <a class="link-btn" href="/player2?game_id=${gid}&participant_id=${p2_id}" target="_blank">🔍 Open Player 2 (Guesser)</a>
-                        <a class="link-btn" href="/moderator?game_id=${gid}&participant_id=${mod_id}" target="_blank">🖥️ Open Moderator View (Live)</a>
-                    </div>
-                `;
-            } else {
-                alert('Failed to create game.');
+        let currentState = null;
+        let currentGameId = null;
+
+        async function updateStatus() {
+            try {
+                const res = await fetch('/moderator/control/status');
+                const data = await res.json();
+
+                if (data.status === 'no_session') {
+                    document.getElementById('status-content').innerHTML = `
+                        <div class="state-badge state-CLOSED">NO SESSION</div>
+                        <p>Click "Open Entry" to create a new session</p>
+                    `;
+                    updateButtons('NO_SESSION');
+                } else if (data.status === 'ok') {
+                    currentState = data.state;
+                    currentGameId = data.game_id;
+
+                    let statusHtml = `
+                        <div class="state-badge state-${data.state}">${data.state}</div>
+                        <p><strong>Game ID:</strong> ${data.game_id}</p>
+                    `;
+
+                    if (data.state === 'OPEN') {
+                        statusHtml += `<p>✅ Entry is open - ${data.waiting_count}/2 participants waiting</p>`;
+                    } else if (data.state === 'READY') {
+                        statusHtml += `<p>⏳ 2 participants ready - Click "Start Game" to begin</p>`;
+                    } else if (data.state === 'IN_PROGRESS') {
+                        statusHtml += `<p>🎮 Game in progress</p>`;
+                    } else if (data.state === 'ENDED') {
+                        statusHtml += `<p>🏁 Game ended - Click "Reset" to prepare for next session</p>`;
+                    }
+
+                    document.getElementById('status-content').innerHTML = statusHtml;
+
+                    if (data.state === 'READY' || data.state === 'IN_PROGRESS') {
+                        const participantSection = document.getElementById('participant-section');
+                        participantSection.style.display = 'block';
+                        
+                        const participantInfo = document.getElementById('participant-info');
+                        participantInfo.innerHTML = `
+                            <div class="participant-card">
+                                <strong>🎭 Player 1 (Secret Card)</strong><br>
+                                <small>ID: ${data.player1_id ? data.player1_id.substring(0, 8) + '...' : 'N/A'}</small>
+                            </div>
+                            <div class="participant-card">
+                                <strong>🔍 Player 2 (Guesser)</strong><br>
+                                <small>ID: ${data.player2_id ? data.player2_id.substring(0, 8) + '...' : 'N/A'}</small>
+                            </div>
+                        `;
+                    } else {
+                        document.getElementById('participant-section').style.display = 'none';
+                    }
+
+                    if (data.state === 'IN_PROGRESS' && data.player1_id && data.player2_id) {
+                        const gameLinksSection = document.getElementById('game-links-section');
+                        gameLinksSection.style.display = 'block';
+                        
+                        const gameLinks = document.getElementById('game-links');
+                        gameLinks.innerHTML = `
+                            <p><a href="/player1?game_id=${data.game_id}&participant_id=${data.player1_id}" target="_blank" class="link-btn">🎭 Player 1 View</a></p>
+                            <p><a href="/player2?game_id=${data.game_id}&participant_id=${data.player2_id}" target="_blank" class="link-btn">🔍 Player 2 View</a></p>
+                            <p><a href="/moderator?game_id=${data.game_id}" target="_blank" class="link-btn">🖥️ Moderator Observer View</a></p>
+                        `;
+                    } else {
+                        document.getElementById('game-links-section').style.display = 'none';
+                    }
+
+                    updateButtons(data.state);
+                }
+            } catch (err) {
+                console.error('Status update failed:', err);
+            }
+        }
+
+        function updateButtons(state) {
+            const btnOpen = document.getElementById('btn-open');
+            const btnStart = document.getElementById('btn-start');
+            const btnEnd = document.getElementById('btn-end');
+            const btnReset = document.getElementById('btn-reset');
+
+            btnOpen.disabled = true;
+            btnStart.disabled = true;
+            btnEnd.disabled = true;
+            btnReset.disabled = true;
+
+            if (state === 'NO_SESSION' || state === 'CLOSED' || state === 'ENDED') {
+                btnOpen.disabled = false;
+            }
+            if (state === 'READY') {
+                btnStart.disabled = false;
+            }
+            if (state === 'IN_PROGRESS') {
+                btnEnd.disabled = false;
+            }
+            if (state === 'ENDED') {
+                btnReset.disabled = false;
+            }
+        }
+
+        document.getElementById('btn-open').onclick = async () => {
+            try {
+                const res = await fetch('/moderator/control/open', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    updateStatus();
+                } else {
+                    alert('Failed to open entry');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
             }
         };
+
+        document.getElementById('btn-start').onclick = async () => {
+            try {
+                const res = await fetch('/moderator/control/start', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    updateStatus();
+                    window.open(`/moderator?game_id=${data.game_id}`, '_blank');
+                } else {
+                    alert('Failed to start game: ' + (data.message || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('btn-end').onclick = async () => {
+            try {
+                const res = await fetch('/moderator/control/end', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    updateStatus();
+                } else {
+                    alert('Failed to end game');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('btn-reset').onclick = async () => {
+            try {
+                const res = await fetch('/moderator/control/reset', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    updateStatus();
+                } else {
+                    alert('Failed to reset session');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('btn-generate-tokens').onclick = async () => {
+            const count = parseInt(document.getElementById('token-count').value);
+
+            if (!count || count < 1 || count > 100) {
+                alert('Please enter a valid number of tokens (1-100)');
+                return;
+            }
+
+            try {
+                const res = await fetch('/moderator/tokens/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ count: count })
+                });
+
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `access_tokens_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+
+                    alert(`✅ Generated ${count} tokens! Check your downloads.`);
+                } else {
+                    const data = await res.json();
+                    alert('Failed to generate tokens: ' + (data.message || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        updateStatus();
+        setInterval(updateStatus, 2000);
     </script>
 </body>
 
