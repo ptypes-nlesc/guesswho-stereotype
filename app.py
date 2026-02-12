@@ -5,6 +5,7 @@ import os
 import random
 import secrets
 import sqlite3
+import time
 import uuid
 from flask import (
     Flask,
@@ -701,7 +702,8 @@ def join_enter():
     return jsonify({
         "status": "ok",
         "participant_id": participant_id,
-        "waiting_count": len(game_state['waiting_participants'])
+        "waiting_count": len(game_state['waiting_participants']),
+        "game_id": CURRENT_SESSION_GAME_ID,
     })
 
 
@@ -950,21 +952,22 @@ def moderator_generate_tokens():
     
     # Generate CSV content
     output = io.StringIO()
-    csv_writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
-    output.write("sep=,\n")
-    csv_writer.writerow(["join_url"])
+    csv_writer = csv.writer(output)
+    csv_writer.writerow(['join_url'])
     
     # Use request.host_url to get the base URL
     base_url = request.host_url.rstrip('/')
     for token in tokens:
         join_url = f"{base_url}/join?token={token}"
-        csv_writer.writerow([f'="{join_url}"'])
+        csv_writer.writerow([join_url])
     
     # Create CSV response
     csv_content = output.getvalue()
     response = make_response(csv_content)
     response.headers['Content-Type'] = 'text/csv'
-    response.headers['Content-Disposition'] = f'attachment; filename=access_tokens_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+    # Use local time with proper timezone offset
+    local_time = datetime.datetime.fromtimestamp(time.time())
+    response.headers['Content-Disposition'] = f'attachment; filename=access_tokens_{local_time.strftime("%Y%m%d_%H%M%S")}.csv'
     
     record_event("moderator", "tokens_generated", "system", text=f"Generated {count} tokens")
     
