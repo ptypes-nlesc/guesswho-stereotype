@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import time
 import uuid
+from dotenv import load_dotenv
 from flask import (
     Flask,
     jsonify,
@@ -19,18 +20,36 @@ from flask import (
 )
 from flask_socketio import SocketIO, join_room
 
+load_dotenv()
+
 # ---------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------
 app = Flask(__name__)
+
+# Validate required environment variables
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError(
+        "SECRET_KEY environment variable is required. "
+        "Please set it in your .env file or system environment."
+    )
+
 app.config.update(
-    SECRET_KEY=os.getenv("SECRET_KEY", "change_this_to_something_secret"),
+    SECRET_KEY=SECRET_KEY,
     TEMPLATES_AUTO_RELOAD=True,
 )
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 DB_PATH = "db/games.db"
-MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD", "research123")
+MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD")
+
+# Validate required environment variables
+if not MODERATOR_PASSWORD:
+    raise ValueError(
+        "MODERATOR_PASSWORD environment variable is required. "
+        "Please set it in your .env file or system environment."
+    )
 
 # Card catalog (12 cards)
 CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
