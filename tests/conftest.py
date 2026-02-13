@@ -4,6 +4,15 @@ import sqlite3
 import pytest
 from app import app, socketio, init_db, get_db_conn
 
+@pytest.fixture(autouse=True)
+def override_password(monkeypatch):
+    """Auto-use fixture: sets MODERATOR_PASSWORD for all tests."""
+    monkeypatch.setenv("MODERATOR_PASSWORD", "test-password")
+    
+    # Reload MODERATOR_PASSWORD in app module since it's already imported
+    import app as app_module
+    app_module.MODERATOR_PASSWORD = "test-password"
+
 @pytest.fixture
 def client():
     """Create Flask test client with in-memory SQLite database."""
