@@ -35,12 +35,14 @@ def reset_globals():
     """Reset in-memory state between tests."""
     import app as app_module
     
-    # Store originals
+    # Store originals - only for variables that exist
     original_game_states = dict(app_module.GAME_STATES)
     original_session_game_id = app_module.CURRENT_SESSION_GAME_ID
     original_participant_roles = dict(app_module.PARTICIPANT_ROLES)
-    original_voice_choices = dict(app_module.TOKEN_VOICE_CHOICES)
     original_voice_participants = dict(app_module.VOICE_PARTICIPANTS)
+    
+    # Only store if these exist
+    original_voice_choices = dict(getattr(app_module, 'TOKEN_VOICE_CHOICES', {}))
     
     yield
     
@@ -50,10 +52,13 @@ def reset_globals():
     app_module.CURRENT_SESSION_GAME_ID = original_session_game_id
     app_module.PARTICIPANT_ROLES.clear()
     app_module.PARTICIPANT_ROLES.update(original_participant_roles)
-    app_module.TOKEN_VOICE_CHOICES.clear()
-    app_module.TOKEN_VOICE_CHOICES.update(original_voice_choices)
     app_module.VOICE_PARTICIPANTS.clear()
     app_module.VOICE_PARTICIPANTS.update(original_voice_participants)
+    
+    # Reset if exists
+    if hasattr(app_module, 'TOKEN_VOICE_CHOICES'):
+        app_module.TOKEN_VOICE_CHOICES.clear()
+        app_module.TOKEN_VOICE_CHOICES.update(original_voice_choices)
 
 @pytest.fixture
 def socketio_client():
