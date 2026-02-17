@@ -3,6 +3,7 @@ import json
 import os
 import csv
 import io
+import uuid
 from urllib.parse import urlparse, parse_qs
 
 # Test with the actual MODERATOR_PASSWORD from .env
@@ -357,3 +358,60 @@ class TestChat:
         transcript = get_transcript(game_id)
         chat_events = [e for e in transcript if e['action'] == 'chat']
         assert len(chat_events) > 0
+
+    def test_multiple_chat_sequence(self, socketio_client, reset_globals):
+        """Test a sequence of chat messages (Q&A flow)."""
+        from app import get_transcript
+
+        game_id = str(uuid.uuid4())
+        player1_id = "player-1-uuid"
+        player2_id = "player-2-uuid"
+
+        # Both join
+        socketio_client.emit('join', {
+            'game_id': game_id,
+            'role': 'player1',
+            'participant_id': player1_id
+        })
+
+        socketio_client.emit('join', {
+            'game_id': game_id,
+            'role': 'player2',
+            'participant_id': player2_id
+        })
+
+        # Player 2 asks
+        socketio_client.emit('chat', {
+            'game_id': game_id,
+            'role': 'player2',
+            'participant_id': player2_id,
+            'text': 'Is it wearing a hat?'
+        })
+
+        # Player 1 answers
+        socketio_client.emit('chat', {
+            'game_id': game_id,
+            'role': 'player1',
+            'participant_id': player1_id,
+            'text': 'Yes.'
+        })
+
+        # Player 2 clarifies
+        socketio_client.emit('chat', {
+            'game_id': game_id,
+            'role': 'player2',
+            'participant_id': player2_id,
+            'text': 'Is it a red hat?'
+        })
+
+        # Check sequence
+        transcript = get_transcript(game_id)
+        chat_events = [e for e in transcript if e['action'] == 'chat']
+
+        assert len(chat_events) == 3
+        assert chat_events[0]['role'] == 'player2'
+        assert chat_events[0]['text'] == 'Is it wearing a hat?'
+        assert chat_events[1]['role'] == 'player1'
+        assert chat_events[1]['text'] == 'Yes.'
+        assert chat_events[2]['role'] == 'player2'
+        assert chat_events[2]['text'] == 'Is it a red hat?'
