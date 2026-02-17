@@ -2,6 +2,7 @@
 ![Flask](https://img.shields.io/badge/Flask-2.x-lightgrey?logo=flask)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-Realtime--Communication-green?logo=socketdotio)
 ![License](https://img.shields.io/badge/License-Apache%202.0-orange)
+[![CI](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml/badge.svg)](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml)
 
 <img src="static/logo.png" alt="GuessWho Stereotype Research Game Logo" width="200">
 
