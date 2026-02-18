@@ -16,13 +16,9 @@ def override_password(monkeypatch):
     import app as app_module
     app_module.MODERATOR_PASSWORD = "test-password"
 
-@pytest.fixture
-def client():
-    """Create Flask test client with test MySQL database."""
-    app.config['TESTING'] = True
-    app.config['SECRET_KEY'] = 'test-secret-key'
-    
-    # Override MySQL config to use test database
+@pytest.fixture(scope='function')
+def test_db():
+    """Setup test database - shared by all fixtures."""
     import app as app_module
     original_mysql_config = dict(app_module.MYSQL_CONFIG)
     
@@ -48,8 +44,7 @@ def client():
     with app.app_context():
         init_db()
     
-    with app.test_client() as client:
-        yield client
+    yield
     
     # Cleanup: drop test database and restore config
     conn = pymysql.connect(
@@ -66,6 +61,15 @@ def client():
     conn.close()
     
     app_module.MYSQL_CONFIG.update(original_mysql_config)
+
+@pytest.fixture
+def client(test_db):
+    """Create Flask test client with test MySQL database."""
+    app.config['TESTING'] = True
+    app.config['SECRET_KEY'] = 'test-secret-key'
+    
+    with app.test_client() as client:
+        yield client
 
 @pytest.fixture
 def reset_globals():
@@ -98,11 +102,29 @@ def reset_globals():
         app_module.TOKEN_VOICE_CHOICES.update(original_voice_choices)
 
 @pytest.fixture
-def socketio_client():
-    """Create Flask-SocketIO test client."""
+def socketio_client(test_db):
+    """Create Flask-SocketIO test client with test MySQL database."""
     app.config['TESTING'] = True
     app.config['SECRET_KEY'] = 'test-secret-key'
     
     client = socketio.test_client(app, flask_test_client=app.test_client())
     yield client
     client.disconnect()
+
+@pytest.fixture
+def create_test_game():
+    """Helper to create a game record in the database for testing."""
+    import app as app_module
+    import pymysql
+    
+    def _create_game(game_id, chosen_card=None):
+        """Insert a game record into the games table."""
+        with app_module.get_db_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO games (id, chosen_card, created_at) VALUES (%s, %s, NOW())",
+                (game_id, chosen_card)
+            )
+        return game_id
+    
+    return _create_game
