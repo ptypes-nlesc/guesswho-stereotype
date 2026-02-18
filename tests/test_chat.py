@@ -61,12 +61,15 @@ class TestChat:
             'player2_id': participant2_id
         }
 
-    def test_player1_send_chat(self, socketio_client, reset_globals):
+    def test_player1_send_chat(self, socketio_client, reset_globals, create_test_game):
         """Test Player 1 sending a chat message."""
         from app import get_transcript
         
         game_id = "test-game-123"
         player1_id = "player-1-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         # Emit join event
         socketio_client.emit('join', {
@@ -89,12 +92,15 @@ class TestChat:
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == 'Is it a person?'
 
-    def test_player2_send_chat(self, socketio_client, reset_globals):
+    def test_player2_send_chat(self, socketio_client, reset_globals, create_test_game):
         """Test Player 2 sending a chat message."""
         from app import get_transcript
         
         game_id = "test-game-456"
         player2_id = "player-2-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         # Emit join event
         socketio_client.emit('join', {
@@ -117,12 +123,15 @@ class TestChat:
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == 'The person has brown hair.'
 
-    def test_moderator_send_chat(self, socketio_client, reset_globals):
+    def test_moderator_send_chat(self, socketio_client, reset_globals, create_test_game):
         """Test Moderator sending a chat message."""
         from app import get_transcript
         
         game_id = "test-game-789"
         moderator_id = "moderator-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         # Emit join event
         socketio_client.emit('join', {
@@ -145,10 +154,13 @@ class TestChat:
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == 'Good question. Please continue.'
 
-    def test_chat_message_missing_text(self, socketio_client, reset_globals):
+    def test_chat_message_missing_text(self, socketio_client, reset_globals, create_test_game):
         """Test sending chat without text field."""
         game_id = "test-game-empty"
         player1_id = "player-1-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         socketio_client.emit('join', {
             'game_id': game_id,
@@ -170,11 +182,14 @@ class TestChat:
         chat_events = [e for e in transcript if e['action'] == 'chat']
         assert len(chat_events) > 0
 
-    def test_chat_without_game_id(self, socketio_client, reset_globals):
+    def test_chat_without_game_id(self, socketio_client, reset_globals, create_test_game):
         """Test chat without game_id uses default."""
         from app import get_transcript, DEFAULT_GAME_ID
         
         player1_id = "player-1-uuid"
+        
+        # Create game record in database first
+        create_test_game(DEFAULT_GAME_ID)
         
         socketio_client.emit('join', {
             'game_id': DEFAULT_GAME_ID,
@@ -194,13 +209,16 @@ class TestChat:
         # Should have join + chat events
         assert len(transcript) >= 1
 
-    def test_chat_event_logging_complete(self, socketio_client, reset_globals):
+    def test_chat_event_logging_complete(self, socketio_client, reset_globals, create_test_game):
         """Test that chat events are fully logged with all metadata."""
         from app import get_transcript
         
         game_id = "test-game-metadata"
         player1_id = "player-1-uuid"
         message_text = "Does it have green eyes?"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         socketio_client.emit('join', {
             'game_id': game_id,
@@ -226,13 +244,16 @@ class TestChat:
         assert chat_event['game_id'] == game_id
         assert chat_event['timestamp'] is not None
 
-    def test_multiple_chat_sequence(self, socketio_client, reset_globals):
+    def test_multiple_chat_sequence(self, socketio_client, reset_globals, create_test_game):
         """Test a sequence of chat messages (Q&A flow)."""
         from app import get_transcript
         
         game_id = "test-game-sequence"
         player1_id = "player-1-uuid"
         player2_id = "player-2-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         # Both join
         socketio_client.emit('join', {
@@ -283,13 +304,16 @@ class TestChat:
         assert chat_events[2]['role'] == 'player2'
         assert chat_events[2]['text'] == 'Is it a red hat?'
 
-    def test_chat_with_special_characters(self, socketio_client, reset_globals):
+    def test_chat_with_special_characters(self, socketio_client, reset_globals, create_test_game):
         """Test chat messages with special characters and unicode."""
         from app import get_transcript
         
         game_id = "test-game-special"
         player1_id = "player-1-uuid"
         special_text = "Does it have café? 🎓 <script>alert('xss')</script>"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         socketio_client.emit('join', {
             'game_id': game_id,
@@ -309,12 +333,15 @@ class TestChat:
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == special_text
 
-    def test_chat_before_game_starts(self, socketio_client, reset_globals):
+    def test_chat_before_game_starts(self, socketio_client, reset_globals, create_test_game):
         """Test that chat can happen before game officially starts."""
         from app import get_transcript
         
         game_id = "test-game-early-chat"
         player1_id = "player-1-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         socketio_client.emit('join', {
             'game_id': game_id,
@@ -334,12 +361,15 @@ class TestChat:
         chat_events = [e for e in transcript if e['action'] == 'chat']
         assert len(chat_events) > 0
 
-    def test_chat_after_game_ends(self, socketio_client, reset_globals):
+    def test_chat_after_game_ends(self, socketio_client, reset_globals, create_test_game):
         """Test that chat can continue after game ends (for debrief)."""
         from app import get_transcript
         
         game_id = "test-game-debrief"
         player1_id = "player-1-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
         
         socketio_client.emit('join', {
             'game_id': game_id,
@@ -359,13 +389,16 @@ class TestChat:
         chat_events = [e for e in transcript if e['action'] == 'chat']
         assert len(chat_events) > 0
 
-    def test_multiple_chat_sequence(self, socketio_client, reset_globals):
+    def test_multiple_chat_sequence(self, socketio_client, reset_globals, create_test_game):
         """Test a sequence of chat messages (Q&A flow)."""
         from app import get_transcript
 
         game_id = str(uuid.uuid4())
         player1_id = "player-1-uuid"
         player2_id = "player-2-uuid"
+        
+        # Create game record in database first
+        create_test_game(game_id)
 
         # Both join
         socketio_client.emit('join', {

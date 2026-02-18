@@ -28,10 +28,10 @@ class TestTokenManagement:
         with get_db_conn() as conn:
             c = conn.cursor()
             c.execute(
-                "INSERT INTO access_tokens (token, created_at, expires_at) VALUES (?, ?, ?)",
+                "INSERT INTO access_tokens (token, created_at, expires_at) VALUES (%s, %s, %s)",
                 ("expired-token", datetime.datetime.now().isoformat(), expired_time)
             )
-            conn.commit()
+            # Context manager auto-commits
         
         # Try to join with expired token
         res = client.post("/join/enter", json={"token": "expired-token"})

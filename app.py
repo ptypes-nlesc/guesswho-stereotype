@@ -185,8 +185,7 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
-        conn.commit()
-
+       
 
 def log_event(entry):
     """Insert structured event into DB."""
@@ -220,14 +219,14 @@ def log_event(entry):
                 """,
                 (game_id, card, datetime.datetime.now().isoformat()),
             )
-        conn.commit()
+        # Context manager auto-commits
 
 
 def get_eliminated_cards(game_id):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT card_id FROM eliminated_cards WHERE game_id = %s", (game_id,))
-        return {row[0] for row in c.fetchall()}
+        return {row['card_id'] for row in c.fetchall()}
 
 
 def get_chosen_card(game_id):
@@ -255,7 +254,7 @@ def get_joined_roles(game_id):
             "SELECT DISTINCT role FROM events WHERE game_id = %s AND action = %s",
             (game_id, "join"),
         )
-        return {row[0] for row in c.fetchall()}
+        return {row['role'] for row in c.fetchall()}
 
 
 # ---------------------------------------------------------------------
@@ -275,7 +274,7 @@ if not os.getenv('TESTING'):
                 random.choice(CARDS)["id"],
             ),
         )
-        conn.commit()
+        # Context manager auto-commits
 else:
     DEFAULT_GAME_ID = "test-game-default"
 
@@ -344,8 +343,6 @@ def set_participant_binding(game_id, participant_id, role):
             "INSERT IGNORE INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
             (game_id, participant_id, role, datetime.datetime.now().isoformat()),
         )
-        conn.commit()
-
 
 # Helper to check role binding (now DB-backed)
 def check_role_binding(game_id, participant_id, required_role):
@@ -495,7 +492,6 @@ def create_game():
             "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
             (game_id, moderator_id, "moderator", datetime.datetime.now().isoformat()),
         )
-        conn.commit()
 
     record_event("system", "card_draw", game_id, card=chosen_card)
     print(f"Created new game {game_id} with card {chosen_card}")
@@ -589,7 +585,7 @@ def join_page():
         return render_template("waiting.html", error="Invalid token. Please check your invitation link.")
     
     # Check if token is expired
-    expires_at = datetime.datetime.fromisoformat(token_row['expires_at'])
+    expires_at = token_row['expires_at']  # MySQL returns datetime object directly
     if datetime.datetime.now() > expires_at:
         return render_template("waiting.html", error="This invitation link has expired.")
     
@@ -685,7 +681,7 @@ def join_enter():
         return jsonify({"status": "error", "message": "Invalid token"}), 400
     
     # Check if token is expired
-    expires_at = datetime.datetime.fromisoformat(token_row['expires_at'])
+    expires_at = token_row['expires_at']  # MySQL returns datetime object directly
     if datetime.datetime.now() > expires_at:
         return jsonify({"status": "error", "message": "Token has expired"}), 400
     
@@ -703,7 +699,7 @@ def join_enter():
                 "UPDATE access_tokens SET used_at = %s, participant_id = %s WHERE token = %s",
                 (datetime.datetime.now().isoformat(), participant_id, token)
             )
-            conn.commit()
+            # Context manager auto-commits
     
     if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
         return jsonify({"status": "error", "message": "No active session"}), 400
@@ -826,10 +822,10 @@ def moderator_open_entry():
         with get_db_conn() as conn:
             c = conn.cursor()
             c.execute(
-                "INSERT INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
+                "INSERT INTO games (id, created_at, chosen_card) VALUES (%s, %s, %s)",
                 (game_id, datetime.datetime.now().isoformat(), chosen_card),
             )
-            conn.commit()
+        # Context manager auto-commits on successful exit
         
         moderator_game_id = game_id
         session['moderator_session_game_id'] = game_id
@@ -998,7 +994,7 @@ def moderator_generate_tokens():
                 (token, created_at, expires_at)
             )
             tokens.append(token)
-        conn.commit()
+        # Context manager auto-commits
     
     # Generate CSV content
     output = io.StringIO()
