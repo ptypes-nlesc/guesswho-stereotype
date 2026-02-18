@@ -1,8 +1,11 @@
 import os
-import tempfile
-import sqlite3
 import pytest
-from app import app, socketio, init_db, get_db_conn
+import pymysql
+
+# Set TESTING flag before importing app
+os.environ['TESTING'] = '1'
+
+from app import app, socketio, init_db
 
 @pytest.fixture(autouse=True)
 def override_password(monkeypatch):
@@ -15,29 +18,54 @@ def override_password(monkeypatch):
 
 @pytest.fixture
 def client():
-    """Create Flask test client with in-memory SQLite database."""
-    # Use temporary file for SQLite during tests
-    db_fd, db_path = tempfile.mkstemp()
-    
+    """Create Flask test client with test MySQL database."""
     app.config['TESTING'] = True
     app.config['SECRET_KEY'] = 'test-secret-key'
     
-    # Override DB_PATH to use temp file
+    # Override MySQL config to use test database
     import app as app_module
-    original_db_path = app_module.DB_PATH
-    app_module.DB_PATH = db_path
+    original_mysql_config = dict(app_module.MYSQL_CONFIG)
     
-    # Initialize database
+    # Use test database name
+    app_module.MYSQL_CONFIG['database'] = 'exposeddb_test'
+    
+    # Create test database
+    conn = pymysql.connect(
+        host=original_mysql_config['host'],
+        port=original_mysql_config['port'],
+        user=original_mysql_config['user'],
+        password=original_mysql_config['password'],
+        charset='utf8mb4'
+    )
+    cursor = conn.cursor()
+    cursor.execute("DROP DATABASE IF EXISTS exposeddb_test")
+    cursor.execute("CREATE DATABASE exposeddb_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    # Initialize test database tables
     with app.app_context():
         init_db()
     
     with app.test_client() as client:
         yield client
     
-    # Cleanup
-    app_module.DB_PATH = original_db_path
-    os.close(db_fd)
-    os.unlink(db_path)
+    # Cleanup: drop test database and restore config
+    conn = pymysql.connect(
+        host=original_mysql_config['host'],
+        port=original_mysql_config['port'],
+        user=original_mysql_config['user'],
+        password=original_mysql_config['password'],
+        charset='utf8mb4'
+    )
+    cursor = conn.cursor()
+    cursor.execute("DROP DATABASE IF EXISTS exposeddb_test")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    app_module.MYSQL_CONFIG.update(original_mysql_config)
 
 @pytest.fixture
 def reset_globals():

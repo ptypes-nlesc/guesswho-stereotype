@@ -4,9 +4,10 @@ import io
 import os
 import random
 import secrets
-import sqlite3
+import pymysql
 import time
 import uuid
+from contextlib import contextmanager
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -41,7 +42,16 @@ app.config.update(
 )
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-DB_PATH = "db/games.db"
+MYSQL_CONFIG = {
+    'host': os.getenv('MYSQL_HOST', 'localhost'),
+    'port': int(os.getenv('MYSQL_PORT', 3306)),
+    'user': os.getenv('MYSQL_USER'),
+    'password': os.getenv('MYSQL_PASSWORD'),
+    'database': os.getenv('MYSQL_DATABASE'),
+    'charset': 'utf8mb4',
+    'cursorclass': pymysql.cursors.DictCursor
+}
+
 MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD")
 
 # Validate required environment variables
@@ -50,6 +60,26 @@ if not MODERATOR_PASSWORD:
         "MODERATOR_PASSWORD environment variable is required. "
         "Please set it in your .env file or system environment."
     )
+
+# Validate MySQL configuration
+if not all([MYSQL_CONFIG['user'], MYSQL_CONFIG['password'], MYSQL_CONFIG['database']]):
+    raise ValueError(
+        "MySQL configuration incomplete. "
+        "Please set MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in .env"
+    )
+
+@contextmanager
+def get_db_conn():
+    """Get MySQL connection with context manager."""
+    conn = pymysql.connect(**MYSQL_CONFIG)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 # Card catalog (12 cards)
 CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
@@ -73,17 +103,6 @@ GAME_STATES = {
 CURRENT_SESSION_GAME_ID = None  # The active game session
 
 
-# ---------------------------------------------------------------------
-# Database utilities
-# ---------------------------------------------------------------------
-def get_db_conn():
-    """Open SQLite connection, creating folder if needed."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_db():
     """Ensure all tables exist before running the app."""
     with get_db_conn() as conn:
@@ -91,71 +110,79 @@ def init_db():
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS games (
-                id TEXT PRIMARY KEY,
-                created_at TEXT,
-                chosen_card INTEGER
-            )
+                id VARCHAR(255) PRIMARY KEY,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                chosen_card INT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id TEXT,
-                role TEXT,
-                action TEXT,
-                text TEXT,
-                card INTEGER,
-                participant_id TEXT,
-                timestamp TEXT
-            )
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                game_id VARCHAR(255) NOT NULL,
+                role VARCHAR(50),
+                action VARCHAR(50),
+                text LONGTEXT,
+                card INT,
+                participant_id VARCHAR(255),
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+                INDEX idx_game_id (game_id),
+                INDEX idx_timestamp (timestamp)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS eliminated_cards (
-                game_id TEXT,
-                card_id INTEGER,
-                eliminated_at TEXT,
-                PRIMARY KEY (game_id, card_id)
-            )
+                game_id VARCHAR(255) NOT NULL,
+                card_id INT NOT NULL,
+                eliminated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (game_id, card_id),
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS audio_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id TEXT,
-                role TEXT,
-                start_time TEXT,
-                end_time TEXT,
-                duration_seconds REAL,
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                game_id VARCHAR(255) NOT NULL,
+                role VARCHAR(50),
+                start_time DATETIME,
+                end_time DATETIME,
+                duration_seconds FLOAT,
                 audio_path TEXT,
-                transcript TEXT,
-                timestamp TEXT
-            )
+                transcript LONGTEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+                INDEX idx_game_id (game_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS participant_bindings (
-                game_id TEXT,
-                participant_id TEXT,
-                role TEXT,
-                created_at TEXT,
-                PRIMARY KEY (game_id, participant_id)
-            )
+                game_id VARCHAR(255) NOT NULL,
+                participant_id VARCHAR(255) NOT NULL,
+                role VARCHAR(50),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (game_id, participant_id),
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS access_tokens (
-                token TEXT PRIMARY KEY,
-                created_at TEXT,
-                expires_at TEXT,
-                used_at TEXT,
-                participant_id TEXT
-            )
+                token VARCHAR(255) PRIMARY KEY,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME,
+                used_at DATETIME,
+                participant_id VARCHAR(255),
+                INDEX idx_expires_at (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
         conn.commit()
@@ -172,7 +199,7 @@ def log_event(entry):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO events (game_id, role, action, text, card, participant_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO events (game_id, role, action, text, card, participant_id, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (
                 game_id,
                 role,
@@ -188,8 +215,8 @@ def log_event(entry):
         if action == "eliminate" and card is not None:
             c.execute(
                 """
-                INSERT OR REPLACE INTO eliminated_cards (game_id, card_id, eliminated_at)
-                VALUES (?, ?, ?)
+                REPLACE INTO eliminated_cards (game_id, card_id, eliminated_at)
+                VALUES (%s, %s, %s)
                 """,
                 (game_id, card, datetime.datetime.now().isoformat()),
             )
@@ -199,23 +226,23 @@ def log_event(entry):
 def get_eliminated_cards(game_id):
     with get_db_conn() as conn:
         c = conn.cursor()
-        c.execute("SELECT card_id FROM eliminated_cards WHERE game_id = ?", (game_id,))
+        c.execute("SELECT card_id FROM eliminated_cards WHERE game_id = %s", (game_id,))
         return {row[0] for row in c.fetchall()}
 
 
 def get_chosen_card(game_id):
     with get_db_conn() as conn:
         c = conn.cursor()
-        c.execute("SELECT chosen_card FROM games WHERE id = ?", (game_id,))
+        c.execute("SELECT chosen_card FROM games WHERE id = %s", (game_id,))
         row = c.fetchone()
-        return row[0] if row else None
+        return row['chosen_card'] if row else None
 
 
 def get_transcript(game_id, limit=200):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT * FROM events WHERE game_id = ? ORDER BY id DESC LIMIT ?",
+            "SELECT * FROM events WHERE game_id = %s ORDER BY id DESC LIMIT %s",
             (game_id, limit),
         )
         return [dict(r) for r in reversed(c.fetchall())]
@@ -225,7 +252,7 @@ def get_joined_roles(game_id):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT DISTINCT role FROM events WHERE game_id = ? AND action = ?",
+            "SELECT DISTINCT role FROM events WHERE game_id = %s AND action = %s",
             (game_id, "join"),
         )
         return {row[0] for row in c.fetchall()}
@@ -234,19 +261,23 @@ def get_joined_roles(game_id):
 # ---------------------------------------------------------------------
 # Initialize DB and default game
 # ---------------------------------------------------------------------
-init_db()
-DEFAULT_GAME_ID = uuid.uuid4().hex
-with get_db_conn() as conn:
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
-        (
-            DEFAULT_GAME_ID,
-            datetime.datetime.now().isoformat(),
-            random.choice(CARDS)["id"],
-        ),
-    )
-    conn.commit()
+# Only initialize if not in testing mode
+if not os.getenv('TESTING'):
+    init_db()
+    DEFAULT_GAME_ID = uuid.uuid4().hex
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "REPLACE INTO games (id, created_at, chosen_card) VALUES (%s, %s, %s)",
+            (
+                DEFAULT_GAME_ID,
+                datetime.datetime.now().isoformat(),
+                random.choice(CARDS)["id"],
+            ),
+        )
+        conn.commit()
+else:
+    DEFAULT_GAME_ID = "test-game-default"
 
 
 # ---------------------------------------------------------------------
@@ -298,11 +329,11 @@ def get_participant_binding(game_id, participant_id):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT role FROM participant_bindings WHERE game_id = ? AND participant_id = ?",
+            "SELECT role FROM participant_bindings WHERE game_id = %s AND participant_id = %s",
             (game_id, participant_id),
         )
         row = c.fetchone()
-        return row[0] if row else None
+        return row['role'] if row else None
 
 
 def set_participant_binding(game_id, participant_id, role):
@@ -310,7 +341,7 @@ def set_participant_binding(game_id, participant_id, role):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT OR IGNORE INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT IGNORE INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
             (game_id, participant_id, role, datetime.datetime.now().isoformat()),
         )
         conn.commit()
@@ -448,20 +479,20 @@ def create_game():
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO games (id, created_at, chosen_card) VALUES (?, ?, ?)",
+            "INSERT INTO games (id, created_at, chosen_card) VALUES (%s, %s, %s)",
             (game_id, datetime.datetime.now().isoformat(), chosen_card),
         )
         # Pre-bind participant_ids to roles in DB
         c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
             (game_id, player1_id, "player1", datetime.datetime.now().isoformat()),
         )
         c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
             (game_id, player2_id, "player2", datetime.datetime.now().isoformat()),
         )
         c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
             (game_id, moderator_id, "moderator", datetime.datetime.now().isoformat()),
         )
         conn.commit()
@@ -549,7 +580,7 @@ def join_page():
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT token, expires_at, used_at, participant_id FROM access_tokens WHERE token = ?",
+            "SELECT token, expires_at, used_at, participant_id FROM access_tokens WHERE token = %s",
             (token,)
         )
         token_row = c.fetchone()
@@ -558,12 +589,12 @@ def join_page():
         return render_template("waiting.html", error="Invalid token. Please check your invitation link.")
     
     # Check if token is expired
-    expires_at = datetime.datetime.fromisoformat(token_row[1])
+    expires_at = datetime.datetime.fromisoformat(token_row['expires_at'])
     if datetime.datetime.now() > expires_at:
         return render_template("waiting.html", error="This invitation link has expired.")
     
     # Check if token has been used
-    if token_row[2]:  # used_at is not NULL
+    if token_row['used_at']:  # used_at is not NULL
         return render_template("waiting.html", error="This token has already been used and cannot be reused.")
     
     # Token is valid and unused - render waiting page with token
@@ -645,7 +676,7 @@ def join_enter():
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT token, expires_at, used_at, participant_id FROM access_tokens WHERE token = ?",
+            "SELECT token, expires_at, used_at, participant_id FROM access_tokens WHERE token = %s",
             (token,)
         )
         token_row = c.fetchone()
@@ -654,12 +685,12 @@ def join_enter():
         return jsonify({"status": "error", "message": "Invalid token"}), 400
     
     # Check if token is expired
-    expires_at = datetime.datetime.fromisoformat(token_row[1])
+    expires_at = datetime.datetime.fromisoformat(token_row['expires_at'])
     if datetime.datetime.now() > expires_at:
         return jsonify({"status": "error", "message": "Token has expired"}), 400
     
     # Check if token has been used
-    if token_row[2]:  # used_at is not NULL
+    if token_row['used_at']:  # used_at is not NULL
         # Token already used - reject with error
         return jsonify({"status": "error", "message": "This token has already been used and cannot be reused"}), 400
     else:
@@ -669,7 +700,7 @@ def join_enter():
         with get_db_conn() as conn:
             c = conn.cursor()
             c.execute(
-                "UPDATE access_tokens SET used_at = ?, participant_id = ? WHERE token = ?",
+                "UPDATE access_tokens SET used_at = %s, participant_id = %s WHERE token = %s",
                 (datetime.datetime.now().isoformat(), participant_id, token)
             )
             conn.commit()
@@ -963,7 +994,7 @@ def moderator_generate_tokens():
         for _ in range(count):
             token = secrets.token_urlsafe(32)
             c.execute(
-                "INSERT INTO access_tokens (token, created_at, expires_at, used_at, participant_id) VALUES (?, ?, ?, NULL, NULL)",
+                "INSERT INTO access_tokens (token, created_at, expires_at, used_at, participant_id) VALUES (%s, %s, %s, NULL, NULL)",
                 (token, created_at, expires_at)
             )
             tokens.append(token)
