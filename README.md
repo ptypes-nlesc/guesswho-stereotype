@@ -45,6 +45,12 @@ pip install -r requirements.txt
 ### 2. Configure MySQL/MariaDB
 Create a `.env` file with the required settings.
 
+To connect with the CLI using the current configuration:
+
+```bash
+mysql -h localhost -P 3306 -u exposed_user -p exposeddb
+```
+
 ### 3. Start the server
 ```bash
 python app.py
