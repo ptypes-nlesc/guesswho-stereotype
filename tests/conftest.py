@@ -37,20 +37,55 @@ def test_db():
     # Use test database name
     app_module.MYSQL_CONFIG['database'] = 'exposeddb_test'
     
-    # Create test database
-    conn = pymysql.connect(
-        host=original_mysql_config['host'],
-        port=original_mysql_config['port'],
-        user=original_mysql_config['user'],
-        password=original_mysql_config['password'],
-        charset='utf8mb4'
-    )
-    cursor = conn.cursor()
+    admin_user = os.getenv('MYSQL_ROOT_USER', 'root')
+    admin_password = os.getenv('MYSQL_ROOT_PASSWORD')
+    admin_conn_user = None
+
+    # Create test database using admin credentials (required for CREATE/DROP)
+    try:
+        admin_conn = pymysql.connect(
+            host=original_mysql_config['host'],
+            port=original_mysql_config['port'],
+            user=admin_user,
+            password=admin_password,
+            charset='utf8mb4'
+        )
+        admin_conn_user = admin_user
+    except pymysql.err.OperationalError as exc:
+        admin_conn = None
+        fallback_error = exc
+
+    if admin_conn is None:
+        try:
+            admin_conn = pymysql.connect(
+                host=original_mysql_config['host'],
+                port=original_mysql_config['port'],
+                user=original_mysql_config['user'],
+                password=original_mysql_config['password'],
+                charset='utf8mb4'
+            )
+            admin_conn_user = original_mysql_config['user']
+        except pymysql.err.OperationalError as exc:
+            raise RuntimeError(
+                "Test DB setup failed. Set MYSQL_ROOT_PASSWORD (and optional MYSQL_ROOT_USER) "
+                "so tests can create/drop the test database."
+            ) from exc
+
+    cursor = admin_conn.cursor()
     cursor.execute("DROP DATABASE IF EXISTS exposeddb_test")
     cursor.execute("CREATE DATABASE exposeddb_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-    conn.commit()
+
+    if admin_conn_user != original_mysql_config['user']:
+        # Grant permissions to app user on test database
+        cursor.execute(
+            "GRANT ALL PRIVILEGES ON exposeddb_test.* TO %s@'%%'",
+            (original_mysql_config['user'],)
+        )
+        cursor.execute("FLUSH PRIVILEGES")
+
+    admin_conn.commit()
     cursor.close()
-    conn.close()
+    admin_conn.close()
     
     # Initialize test database tables
     with app.app_context():
@@ -58,19 +93,31 @@ def test_db():
     
     yield
     
-    # Cleanup: drop test database and restore config
-    conn = pymysql.connect(
-        host=original_mysql_config['host'],
-        port=original_mysql_config['port'],
-        user=original_mysql_config['user'],
-        password=original_mysql_config['password'],
-        charset='utf8mb4'
-    )
-    cursor = conn.cursor()
+    # Cleanup: drop test database using admin credentials, fallback to app user
+    admin_user = os.getenv('MYSQL_ROOT_USER', 'root')
+    admin_password = os.getenv('MYSQL_ROOT_PASSWORD')
+    try:
+        admin_conn = pymysql.connect(
+            host=original_mysql_config['host'],
+            port=original_mysql_config['port'],
+            user=admin_user,
+            password=admin_password,
+            charset='utf8mb4'
+        )
+    except pymysql.err.OperationalError:
+        admin_conn = pymysql.connect(
+            host=original_mysql_config['host'],
+            port=original_mysql_config['port'],
+            user=original_mysql_config['user'],
+            password=original_mysql_config['password'],
+            charset='utf8mb4'
+        )
+
+    cursor = admin_conn.cursor()
     cursor.execute("DROP DATABASE IF EXISTS exposeddb_test")
-    conn.commit()
+    admin_conn.commit()
     cursor.close()
-    conn.close()
+    admin_conn.close()
     
     app_module.MYSQL_CONFIG.update(original_mysql_config)
 
