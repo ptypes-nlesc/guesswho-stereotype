@@ -5,16 +5,28 @@ import pymysql
 # Set TESTING flag before importing app
 os.environ['TESTING'] = '1'
 
+# Load .env if it exists (local development)
+from dotenv import load_dotenv
+load_dotenv()
+
+# Set CI defaults for MySQL if not already set by .env
+os.environ.setdefault('MYSQL_HOST', 'localhost')
+os.environ.setdefault('MYSQL_PORT', '3306')
+os.environ.setdefault('MYSQL_USER', 'exposed_user')
+os.environ.setdefault('MYSQL_PASSWORD', 'exposed_pass')
+os.environ.setdefault('MYSQL_DATABASE', 'exposeddb')
+os.environ.setdefault('SECRET_KEY', 'test-secret-key')
+os.environ.setdefault('MODERATOR_PASSWORD', 'test-password')
+
 from app import app, socketio, init_db
 
 @pytest.fixture(autouse=True)
-def override_password(monkeypatch):
-    """Auto-use fixture: sets MODERATOR_PASSWORD for all tests."""
-    monkeypatch.setenv("MODERATOR_PASSWORD", "test-password")
-    
-    # Reload MODERATOR_PASSWORD in app module since it's already imported
+def ensure_test_password():
+    """Ensure MODERATOR_PASSWORD is set to test value for all tests."""
     import app as app_module
     app_module.MODERATOR_PASSWORD = "test-password"
+    yield
+    # Restore after test (optional, but good practice)
 
 @pytest.fixture(scope='function')
 def test_db():

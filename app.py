@@ -54,19 +54,23 @@ MYSQL_CONFIG = {
 
 MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD")
 
-# Validate required environment variables
-if not MODERATOR_PASSWORD:
-    raise ValueError(
-        "MODERATOR_PASSWORD environment variable is required. "
-        "Please set it in your .env file or system environment."
-    )
+# Skip validation during testing
+IS_TESTING = os.getenv('TESTING') == '1'
 
-# Validate MySQL configuration
-if not all([MYSQL_CONFIG['user'], MYSQL_CONFIG['password'], MYSQL_CONFIG['database']]):
-    raise ValueError(
-        "MySQL configuration incomplete. "
-        "Please set MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in .env"
-    )
+if not IS_TESTING:
+    # Validate required environment variables
+    if not MODERATOR_PASSWORD:
+        raise ValueError(
+            "MODERATOR_PASSWORD environment variable is required. "
+            "Please set it in your .env file or system environment."
+        )
+
+    # Validate MySQL configuration
+    if not all([MYSQL_CONFIG['user'], MYSQL_CONFIG['password'], MYSQL_CONFIG['database']]):
+        raise ValueError(
+            "MySQL configuration incomplete. "
+            "Please set MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in .env"
+        )
 
 @contextmanager
 def get_db_conn():
