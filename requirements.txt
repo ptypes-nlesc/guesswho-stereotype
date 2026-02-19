@@ -1,5 +1,6 @@
 blinker==1.9.0
 click==8.3.0
+cryptography==42.0.8
 Flask==3.1.2
 flask-socketio==5.5.1
 eventlet==0.33.3
