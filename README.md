@@ -4,8 +4,7 @@
 ![License](https://img.shields.io/badge/License-Apache%202.0-orange)
 [![CI](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml/badge.svg)](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml)
 
-<img src="static/logo.png" alt="GuessWho Stereotype Research Game Logo" width="200">
-
+## ✨ Features 
 "XPOSED" is an interactive web application inspired by the classic “Guess Who?” game, designed to explore how people express stereotypes. Instead of discussing stereotypes explicitly, players reveal their reasoning through the process of asking yes/no questions and eliminating characters — while a moderator observes and asks clarifying questions.
 
 
@@ -17,7 +16,7 @@
 - 🧑‍🚀 **Player 2** – sees all character cards, asks questions, and eliminates options based on the answers
 - 🧑‍⚖️ **Moderator** – monitors both players in real time, manages game sessions (start/end/reset)
 - 💬 **Real-time communication** powered by Socket.IO (synchronized questions, answers, and card eliminations)
-- 🗃️ **SQLite logging** of all events (chat, eliminations, system messages)
+- 🗃️ **MySQL/MariaDB logging** of all events (chat, eliminations, system messages)
 
 ---
 
@@ -27,7 +26,7 @@
 | ------------------ | ------------------------------------- |
 | **Frontend**       | HTML + JavaScript (Socket.IO)         |
 | **Backend**        | Flask (Python 3.13) + Flask-SocketIO |
-| **Database**       | SQLite 3            |
+| **Database**       | MySQL / MariaDB      |
 | **Deployment**     | Local (MVP) → AKS later       |
 | **Audio** | WebRTC              |
 
@@ -43,11 +42,20 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Start the server
+### 2. Configure MySQL/MariaDB
+Create a `.env` file with the required settings.
+
+To connect with the CLI using the current configuration:
+
+```bash
+mysql -h localhost -P 3306 -u exposed_user -p exposeddb
+```
+
+### 3. Start the server
 ```bash
 python app.py
 ```
-### 3. Open the main index page  
+### 4. Open the main index page  
 
 ```
 http://127.0.0.1:5000/

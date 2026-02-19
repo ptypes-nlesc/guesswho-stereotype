@@ -13,6 +13,22 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
 
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_USER: exposed_user
+          MYSQL_PASSWORD: exposed_pass
+          MYSQL_DATABASE: exposeddb
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+        ports:
+          - 3306:3306
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -32,6 +48,13 @@ jobs:
         run: |
           echo "SECRET_KEY=test-secret-key-for-ci" > .env
           echo "MODERATOR_PASSWORD=test-password" >> .env
+          echo "MYSQL_ROOT_USER=root" >> .env
+          echo "MYSQL_ROOT_PASSWORD=root" >> .env
+          echo "MYSQL_HOST=localhost" >> .env
+          echo "MYSQL_PORT=3306" >> .env
+          echo "MYSQL_USER=exposed_user" >> .env
+          echo "MYSQL_PASSWORD=exposed_pass" >> .env
+          echo "MYSQL_DATABASE=exposeddb" >> .env
 
       - name: Run tests with pytest
         run: pytest tests/ -v --tb=short
