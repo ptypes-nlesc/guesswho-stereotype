@@ -13,18 +13,25 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
 
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_USER: exposed_user
+          MYSQL_PASSWORD: exposed_pass
+          MYSQL_DATABASE: exposeddb
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+        ports:
+          - 3306:3306
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-
-      - name: Set up MySQL
-        uses: samin/mysql-action@v1
-        with:
-          character set server: 'utf8mb4'
-          mysql version: '8.0'
-          mysql database: 'exposeddb'
-          mysql user: 'exposed_user'
-          mysql password: 'exposed_pass'
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
