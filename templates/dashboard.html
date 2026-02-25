@@ -167,7 +167,6 @@
             <button id="btn-open" class="control-btn btn-open">🔓 Open Entry</button>
             <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
             <button id="btn-end" class="control-btn btn-end">⏹️ End Game</button>
-            <button id="btn-reset" class="control-btn btn-reset">🔄 Reset Session</button>
         </div>
 
         <div class="info-section">
@@ -178,7 +177,6 @@
                 <li><strong>Wait:</strong> Exactly 2 participants must join (entry auto-closes)</li>
                 <li><strong>Start Game:</strong> Roles are assigned automatically and participants are redirected</li>
                 <li><strong>End Game:</strong> When game concludes, end the session</li>
-                <li><strong>Reset:</strong> Prepare for the next pair of participants</li>
             </ol>
         </div>
 
@@ -248,7 +246,7 @@
                     } else if (data.state === 'IN_PROGRESS') {
                         statusHtml += `<p>🎮 Game in progress</p>`;
                     } else if (data.state === 'ENDED') {
-                        statusHtml += `<p>🏁 Game ended - Click "Reset" to prepare for next session</p>`;
+                        statusHtml += `<p>🏁 Game ended - Click "Open Entry" to start a new session</p>`;
                     }
 
                     document.getElementById('status-content').innerHTML = statusHtml;
@@ -297,12 +295,10 @@
             const btnOpen = document.getElementById('btn-open');
             const btnStart = document.getElementById('btn-start');
             const btnEnd = document.getElementById('btn-end');
-            const btnReset = document.getElementById('btn-reset');
 
             btnOpen.disabled = true;
             btnStart.disabled = true;
             btnEnd.disabled = true;
-            btnReset.disabled = true;
 
             if (state === 'NO_SESSION' || state === 'CLOSED' || state === 'ENDED') {
                 btnOpen.disabled = false;
@@ -310,11 +306,8 @@
             if (state === 'READY') {
                 btnStart.disabled = false;
             }
-            if (state === 'IN_PROGRESS') {
+            if (state === 'OPEN' || state === 'READY' || state === 'IN_PROGRESS') {
                 btnEnd.disabled = false;
-            }
-            if (state === 'ENDED') {
-                btnReset.disabled = false;
             }
         }
 
@@ -355,20 +348,6 @@
                     updateStatus();
                 } else {
                     alert('Failed to end game');
-                }
-            } catch (err) {
-                alert('Error: ' + err.message);
-            }
-        };
-
-        document.getElementById('btn-reset').onclick = async () => {
-            try {
-                const res = await fetch('/moderator/control/reset', { method: 'POST' });
-                const data = await res.json();
-                if (data.status === 'ok') {
-                    updateStatus();
-                } else {
-                    alert('Failed to reset session');
                 }
             } catch (err) {
                 alert('Error: ' + err.message);
