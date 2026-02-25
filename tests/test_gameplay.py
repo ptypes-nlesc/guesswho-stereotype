@@ -222,9 +222,11 @@ class TestGamePlay:
         client.post("/join/enter", json={"token": tokens[1]})
         client.post("/moderator/control/start", json={})
         
-        # Try to eliminate without game_id (will use DEFAULT_GAME_ID)
+        # Try to eliminate without game_id (should now fail - game_id required)
         res = client.post("/eliminate_card", json={"card_id": 5})
-        assert res.status_code == 200  # Uses default game
+        assert res.status_code == 400  # Should fail - game_id required
+        data = json.loads(res.data)
+        assert "game_id" in data.get("message", "").lower()
         
         # Try without card_id at all
         res = client.post("/eliminate_card", json={"game_id": game_id})
