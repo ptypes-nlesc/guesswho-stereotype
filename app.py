@@ -466,25 +466,11 @@ def get_joined_roles(game_id):
 
 
 # ---------------------------------------------------------------------
-# Initialize DB and default game
+# Initialize DB
 # ---------------------------------------------------------------------
 # Only initialize if not in testing mode
 if not os.getenv('TESTING'):
     init_db()
-    DEFAULT_GAME_ID = uuid.uuid4().hex
-    with get_db_conn() as conn:
-        c = conn.cursor()
-        c.execute(
-            "REPLACE INTO games (id, created_at, chosen_card) VALUES (%s, %s, %s)",
-            (
-                DEFAULT_GAME_ID,
-                datetime.datetime.now().isoformat(),
-                random.choice(CARDS)["id"],
-            ),
-        )
-        # Context manager auto-commits
-else:
-    DEFAULT_GAME_ID = "test-game-default"
 
 
 # ---------------------------------------------------------------------
@@ -601,8 +587,11 @@ def dashboard():
 @app.route("/player1")
 def player1():
     """Player 1 – secret card view."""
-    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    game_id = request.args.get("game_id")
     participant_id = request.args.get("participant_id")
+    
+    if not game_id:
+        return "Missing game_id parameter", 400
     
     # Enforce role binding
     allowed, message = check_role_binding(game_id, participant_id, "player1")
@@ -622,8 +611,11 @@ def player1():
 @app.route("/player2")
 def player2():
     """Player 2 – guesser grid view."""
-    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    game_id = request.args.get("game_id")
     participant_id = request.args.get("participant_id")
+    
+    if not game_id:
+        return "Missing game_id parameter", 400
     
     # Enforce role binding
     allowed, message = check_role_binding(game_id, participant_id, "player2")
@@ -643,8 +635,11 @@ def player2():
 @app.route("/moderator")
 def moderator():
     """Moderator live view."""
-    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    game_id = request.args.get("game_id")
     participant_id = request.args.get("participant_id")
+    
+    if not game_id:
+        return "Missing game_id parameter", 400
     
     # Enforce role binding
     allowed, message = check_role_binding(game_id, participant_id, "moderator")
@@ -721,7 +716,10 @@ def eliminate_card():
     """Player 2 eliminates a card."""
     data = request.get_json(silent=True) or {}
     card_id = data.get("card_id")
-    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    game_id = data.get("game_id")
+    
+    if not game_id:
+        return jsonify({"status": "error", "message": "game_id required"}), 400
     if not card_id:
         return jsonify({"status": "error", "message": "card_id required"}), 400
 
@@ -746,8 +744,11 @@ def eliminate_card():
 @app.route("/game/status")
 def game_status():
     """Check game state for active players."""
-    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    game_id = request.args.get("game_id")
     participant_id = request.args.get("participant_id")
+    
+    if not game_id:
+        return jsonify({"status": "error", "message": "game_id required"}), 400
     
     current_game_id = get_current_session_game_id()
     if not current_game_id or not get_game_state(current_game_id):
@@ -1262,9 +1263,12 @@ def validate_role_binding(game_id, participant_id, claimed_role):
 @socketio.on("join")
 def handle_join(data):
     """Clients join a shared room by game ID."""
-    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    game_id = data.get("game_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
+    
+    if not game_id:
+        return {"status": "error", "message": "game_id required"}
     
     # Validate role binding
     valid, error = validate_role_binding(game_id, participant_id, role)
@@ -1301,10 +1305,13 @@ def handle_join(data):
 @socketio.on("chat")
 def handle_chat(data):
     """Chat messages between participants."""
-    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    game_id = data.get("game_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
     text = data.get("text", "")
+    
+    if not game_id:
+        return {"status": "error", "message": "game_id required"}
     
     # Validate role binding
     valid, error = validate_role_binding(game_id, participant_id, role)
@@ -1325,11 +1332,13 @@ def handle_chat(data):
 @socketio.on("voice_join")
 def handle_voice_join(data):
     """Participant joins the voice mesh for a game."""
-    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    game_id = data.get("game_id")
     role = data.get("role", "unknown")
     client_id = data.get("client_id")
     participant_id = data.get("participant_id")
-
+    
+    if not game_id:
+        return {"status": "error", "message": "game_id required"}
     if not client_id:
         return {"status": "error", "message": "client_id required"}
 
@@ -1364,11 +1373,14 @@ def handle_voice_join(data):
 @socketio.on("webrtc_signal")
 def handle_webrtc_signal(data):
     """Route WebRTC SDP/ICE to specific target peer in the mesh."""
-    game_id = data.get("game_id", DEFAULT_GAME_ID)
+    game_id = data.get("game_id")
     from_id = data.get("from_id")
     to_id = data.get("to_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
+    
+    if not game_id:
+        return {"status": "error", "message": "game_id required"}
     
     # Validate role binding
     valid, error = validate_role_binding(game_id, participant_id, role)
@@ -1406,7 +1418,11 @@ def handle_webrtc_signal(data):
 @app.route("/transcript")
 def transcript():
     """Return all logged events for a game."""
-    game_id = request.args.get("game_id", DEFAULT_GAME_ID)
+    game_id = request.args.get("game_id")
+    
+    if not game_id:
+        return jsonify({"status": "error", "message": "game_id required"}), 400
+    
     limit = int(request.args.get("limit", "200"))
     return jsonify(get_transcript(game_id, limit))
 

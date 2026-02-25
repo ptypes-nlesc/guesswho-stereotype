@@ -183,31 +183,20 @@ class TestChat:
         assert len(chat_events) > 0
 
     def test_chat_without_game_id(self, socketio_client, reset_globals, create_test_game):
-        """Test chat without game_id uses default."""
-        from app import get_transcript, DEFAULT_GAME_ID
-        
+        """Test chat without game_id returns error."""
         player1_id = "player-1-uuid"
         
-        # Create game record in database first
-        create_test_game(DEFAULT_GAME_ID)
-        
-        socketio_client.emit('join', {
-            'game_id': DEFAULT_GAME_ID,
-            'role': 'player1',
-            'participant_id': player1_id
-        })
-        
-        # Send chat without explicit game_id (defaults to DEFAULT_GAME_ID)
-        socketio_client.emit('chat', {
+        # Send chat without game_id (should return error)
+        result = socketio_client.emit('chat', {
             'role': 'player1',
             'participant_id': player1_id,
-            'text': 'Default game message'
-        })
+            'text': 'Message without game_id'
+        }, callback=True)
         
-        # Should be logged to DEFAULT_GAME_ID
-        transcript = get_transcript(DEFAULT_GAME_ID)
-        # Should have join + chat events
-        assert len(transcript) >= 1
+        # Should return error response
+        if result:
+            assert result.get('status') == 'error'
+            assert 'game_id' in result.get('message', '').lower()
 
     def test_chat_event_logging_complete(self, socketio_client, reset_globals, create_test_game):
         """Test that chat events are fully logged with all metadata."""
