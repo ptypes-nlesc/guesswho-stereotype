@@ -132,21 +132,36 @@ def client(test_db):
 
 @pytest.fixture
 def reset_globals():
-    """Reset in-memory state between tests."""
+    """Reset Redis and in-memory state between tests."""
     import app as app_module
     
-    # Store originals - only for variables that exist
+    # Store originals for in-memory fallback
     original_game_states = dict(app_module.GAME_STATES)
     original_session_game_id = app_module.CURRENT_SESSION_GAME_ID
     original_participant_roles = dict(app_module.PARTICIPANT_ROLES)
     original_voice_participants = dict(app_module.VOICE_PARTICIPANTS)
     
-    # Only store if these exist
-    original_voice_choices = dict(getattr(app_module, 'TOKEN_VOICE_CHOICES', {}))
-    
     yield
     
-    # Reset after test
+    # Reset Redis state if Redis is available
+    if app_module.get_redis():
+        try:
+            redis_client = app_module.get_redis()
+            # Clear all game state keys
+            for key in redis_client.keys("game:*:state"):
+                redis_client.delete(key)
+            # Clear all role keys
+            for key in redis_client.keys("roles:*"):
+                redis_client.delete(key)
+            # Clear all voice keys
+            for key in redis_client.keys("voice:*"):
+                redis_client.delete(key)
+            # Clear current session
+            redis_client.delete("current_session_game_id")
+        except Exception as e:
+            print(f"Warning: Could not reset Redis: {e}")
+    
+    # Reset in-memory fallback dicts
     app_module.GAME_STATES.clear()
     app_module.GAME_STATES.update(original_game_states)
     app_module.CURRENT_SESSION_GAME_ID = original_session_game_id
@@ -154,11 +169,6 @@ def reset_globals():
     app_module.PARTICIPANT_ROLES.update(original_participant_roles)
     app_module.VOICE_PARTICIPANTS.clear()
     app_module.VOICE_PARTICIPANTS.update(original_voice_participants)
-    
-    # Reset if exists
-    if hasattr(app_module, 'TOKEN_VOICE_CHOICES'):
-        app_module.TOKEN_VOICE_CHOICES.clear()
-        app_module.TOKEN_VOICE_CHOICES.update(original_voice_choices)
 
 @pytest.fixture
 def socketio_client(test_db):

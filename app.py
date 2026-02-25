@@ -1,6 +1,7 @@
 import csv
 import datetime
 import io
+import json
 import os
 import random
 import secrets
@@ -20,6 +21,7 @@ from flask import (
     url_for,
 )
 from flask_socketio import SocketIO, join_room
+import redis
 
 load_dotenv()
 
@@ -52,6 +54,14 @@ MYSQL_CONFIG = {
     'cursorclass': pymysql.cursors.DictCursor
 }
 
+REDIS_CONFIG = {
+    'host': os.getenv('REDIS_HOST', 'localhost'),
+    'port': int(os.getenv('REDIS_PORT', 6379)),
+    'password': os.getenv('REDIS_PASSWORD'),
+    'db': int(os.getenv('REDIS_DB', 0)),
+    'decode_responses': True,  # Return strings instead of bytes
+}
+
 MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD")
 
 # Skip validation during testing
@@ -72,6 +82,17 @@ if not IS_TESTING:
             "Please set MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in .env"
         )
 
+# Initialize Redis client
+try:
+    redis_client = redis.Redis(**REDIS_CONFIG)
+    redis_client.ping()  # Test connection
+    print("✓ Redis connection established")
+except Exception as e:
+    if not IS_TESTING:
+        raise ValueError(f"Redis connection failed: {e}")
+    redis_client = None
+    print(f"⚠ Redis unavailable: {e}")
+
 @contextmanager
 def get_db_conn():
     """Get MySQL connection with context manager."""
@@ -87,6 +108,189 @@ def get_db_conn():
 
 # Card catalog (12 cards)
 CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
+
+# =====================================================================
+# Redis abstraction layer for state management
+# =====================================================================
+
+def get_redis():
+    """Return Redis client, or fallback to None if unavailable."""
+    return redis_client
+
+# GAME_STATES helpers: Redis hash per game
+def get_game_state(game_id):
+    """Get game state from Redis. Returns dict or None."""
+    if not get_redis():
+        return GAME_STATES.get(game_id)
+    try:
+        data = get_redis().hgetall(f"game:{game_id}:state")
+        if not data:
+            return None
+        # Convert JSON fields and "null" sentinels
+        if 'waiting_participants' in data:
+            data['waiting_participants'] = json.loads(data['waiting_participants'])
+        # Convert "null" sentinels back to None
+        for key in ['player1_id', 'player2_id']:
+            if key in data and data[key] == "null":
+                data[key] = None
+        return data
+    except Exception as e:
+        print(f"Error getting game state: {e}")
+        return None
+
+def set_game_state(game_id, state_dict):
+    """Store game state in Redis."""
+    if not get_redis():
+        GAME_STATES[game_id] = state_dict
+        return
+    try:
+        # Convert lists/dicts to JSON for storage, handle None values
+        data = {}
+        for key, value in state_dict.items():
+            if value is None:
+                data[key] = "null"  # Redis sentinel for None
+            elif isinstance(value, (list, dict)):
+                data[key] = json.dumps(value)
+            else:
+                # Keep strings and other scalar types as-is
+                data[key] = str(value) if not isinstance(value, str) else value
+        get_redis().hset(f"game:{game_id}:state", mapping=data)
+    except Exception as e:
+        print(f"Error setting game state: {e}")
+
+def delete_game_state(game_id):
+    """Delete game state from Redis."""
+    if not get_redis():
+        GAME_STATES.pop(game_id, None)
+        return
+    try:
+        get_redis().delete(f"game:{game_id}:state")
+    except Exception as e:
+        print(f"Error deleting game state: {e}")
+
+def get_all_game_states():
+    """Get all game states."""
+    if not get_redis():
+        return GAME_STATES.copy()
+    try:
+        keys = get_redis().keys("game:*:state")
+        result = {}
+        for key in keys:
+            game_id = key.split(":")[1]
+            state = get_game_state(game_id)
+            if state:
+                result[game_id] = state
+        return result
+    except Exception as e:
+        print(f"Error getting all game states: {e}")
+        return GAME_STATES.copy()
+
+# PARTICIPANT_ROLES helpers: Redis hash (game_id:participant_id -> role)
+def get_participant_role(game_id, participant_id):
+    """Get participant role for a game."""
+    if not get_redis():
+        return PARTICIPANT_ROLES.get((game_id, participant_id))
+    try:
+        role = get_redis().hget(f"roles:{game_id}", participant_id)
+        return role
+    except Exception as e:
+        print(f"Error getting participant role: {e}")
+        return None
+
+def set_participant_role(game_id, participant_id, role):
+    """Store participant role in Redis."""
+    if not get_redis():
+        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+        return
+    try:
+        get_redis().hset(f"roles:{game_id}", participant_id, role)
+    except Exception as e:
+        print(f"Error setting participant role: {e}")
+
+def delete_participant_role(game_id, participant_id):
+    """Delete participant role from Redis."""
+    if not get_redis():
+        PARTICIPANT_ROLES.pop((game_id, participant_id), None)
+        return
+    try:
+        get_redis().hdel(f"roles:{game_id}", participant_id)
+    except Exception as e:
+        print(f"Error deleting participant role: {e}")
+
+def get_all_participant_roles(game_id):
+    """Get all participant roles for a game."""
+    if not get_redis():
+        return {k[1]: v for k, v in PARTICIPANT_ROLES.items() if k[0] == game_id}
+    try:
+        return get_redis().hgetall(f"roles:{game_id}")
+    except Exception as e:
+        print(f"Error getting all participant roles: {e}")
+        return {}
+
+# VOICE_PARTICIPANTS helpers: Redis hash per game
+def get_voice_participants(game_id):
+    """Get voice participants for a game."""
+    if not get_redis():
+        return VOICE_PARTICIPANTS.get(game_id, {})
+    try:
+        data = get_redis().hgetall(f"voice:{game_id}")
+        # Convert JSON strings back to dicts
+        result = {}
+        for client_id, json_str in data.items():
+            result[client_id] = json.loads(json_str)
+        return result
+    except Exception as e:
+        print(f"Error getting voice participants: {e}")
+        return {}
+
+def add_voice_participant(game_id, client_id, participant_data):
+    """Add a voice participant."""
+    if not get_redis():
+        if game_id not in VOICE_PARTICIPANTS:
+            VOICE_PARTICIPANTS[game_id] = {}
+        VOICE_PARTICIPANTS[game_id][client_id] = participant_data
+        return
+    try:
+        get_redis().hset(f"voice:{game_id}", client_id, json.dumps(participant_data))
+    except Exception as e:
+        print(f"Error adding voice participant: {e}")
+
+def remove_voice_participant(game_id, client_id):
+    """Remove a voice participant."""
+    if not get_redis():
+        if game_id in VOICE_PARTICIPANTS:
+            VOICE_PARTICIPANTS[game_id].pop(client_id, None)
+        return
+    try:
+        get_redis().hdel(f"voice:{game_id}", client_id)
+    except Exception as e:
+        print(f"Error removing voice participant: {e}")
+
+# CURRENT_SESSION_GAME_ID helper
+def get_current_session_game_id():
+    """Get the current session game ID."""
+    if not get_redis():
+        return CURRENT_SESSION_GAME_ID
+    try:
+        game_id = get_redis().get("current_session_game_id")
+        return game_id
+    except Exception as e:
+        print(f"Error getting current session game ID: {e}")
+        return CURRENT_SESSION_GAME_ID
+
+def set_current_session_game_id(game_id):
+    """Set the current session game ID."""
+    if not get_redis():
+        global CURRENT_SESSION_GAME_ID
+        CURRENT_SESSION_GAME_ID = game_id
+        return
+    try:
+        if game_id is None:
+            get_redis().delete("current_session_game_id")
+        else:
+            get_redis().set("current_session_game_id", game_id)
+    except Exception as e:
+        print(f"Error setting current session game ID: {e}")
 
 # Track active voice participants per game: {game_id: {client_id: {role, socket_id}}}
 VOICE_PARTICIPANTS = {}
@@ -370,7 +574,8 @@ def check_role_binding(game_id, participant_id, required_role):
     # No binding exists yet - only allow if session is active
     # For non-moderator roles, verify game belongs to current session
     if required_role != "moderator":
-        if not CURRENT_SESSION_GAME_ID or game_id != CURRENT_SESSION_GAME_ID:
+        current_game_id = get_current_session_game_id()
+        if not current_game_id or game_id != current_game_id:
             return False, "This game session is no longer active"
     else:
         # For moderators, verify game_id matches their session
@@ -544,7 +749,8 @@ def game_status():
     game_id = request.args.get("game_id", DEFAULT_GAME_ID)
     participant_id = request.args.get("participant_id")
     
-    if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
+    current_game_id = get_current_session_game_id()
+    if not current_game_id or not get_game_state(current_game_id):
         return jsonify({
             "state": "CLOSED",
             "is_player": False,
@@ -552,17 +758,17 @@ def game_status():
         })
     
     # Only allow access to the current active session game
-    if game_id != CURRENT_SESSION_GAME_ID:
+    if game_id != current_game_id:
         return jsonify({
             "state": "CLOSED",
             "is_player": False,
             "message": "This game session is no longer active"
         })
     
-    game_state = GAME_STATES[CURRENT_SESSION_GAME_ID]
+    game_state = get_game_state(current_game_id)
     
     return jsonify({
-        "game_id": CURRENT_SESSION_GAME_ID,
+        "game_id": current_game_id,
         "state": game_state['state'],
         "is_player": participant_id in [game_state.get('player1_id'), game_state.get('player2_id')]
     })
@@ -604,33 +810,29 @@ def join_page():
 @app.route("/join/status")
 def join_status():
     """Check if participant can join and get current status."""
-    global CURRENT_SESSION_GAME_ID, GAME_STATES
-    
     participant_id = request.args.get("participant_id")
-    
-    # If participant already in a game, return their role and game_id
-    if participant_id:
-        for game_id, state in GAME_STATES.items():
-            if state.get('player1_id') == participant_id:
-                if state['state'] == 'IN_PROGRESS':
-                    return jsonify({
-                        "status": "in_game",
-                        "role": "player1",
-                        "game_id": game_id
-                    })
-            elif state.get('player2_id') == participant_id:
-                if state['state'] == 'IN_PROGRESS':
-                    return jsonify({
-                        "status": "in_game",
-                        "role": "player2",
-                        "game_id": game_id
-                    })
-    
+
     # Check current session status
-    if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
+    current_game_id = get_current_session_game_id()
+    if not current_game_id or not get_game_state(current_game_id):
         return jsonify({"status": "closed", "message": "Entry is currently closed"})
     
-    game_state = GAME_STATES[CURRENT_SESSION_GAME_ID]
+    game_state = get_game_state(current_game_id)
+
+    # If participant already in the current game, return their role
+    if participant_id and game_state.get('state') == 'IN_PROGRESS':
+        if game_state.get('player1_id') == participant_id:
+            return jsonify({
+                "status": "in_game",
+                "role": "player1",
+                "game_id": current_game_id
+            })
+        if game_state.get('player2_id') == participant_id:
+            return jsonify({
+                "status": "in_game",
+                "role": "player2",
+                "game_id": current_game_id
+            })
     
     if game_state['state'] == 'CLOSED':
         return jsonify({"status": "closed", "message": "Entry is currently closed"})
@@ -664,8 +866,6 @@ def join_status():
 @app.route("/join/enter", methods=["POST"])
 def join_enter():
     """Participant attempts to enter the waiting room using a token."""
-    global CURRENT_SESSION_GAME_ID, GAME_STATES
-    
     data = request.get_json() or {}
     token = data.get("token")
     
@@ -705,10 +905,11 @@ def join_enter():
             )
             # Context manager auto-commits
     
-    if not CURRENT_SESSION_GAME_ID or CURRENT_SESSION_GAME_ID not in GAME_STATES:
+    current_game_id = get_current_session_game_id()
+    if not current_game_id or not get_game_state(current_game_id):
         return jsonify({"status": "error", "message": "No active session"}), 400
     
-    game_state = GAME_STATES[CURRENT_SESSION_GAME_ID]
+    game_state = get_game_state(current_game_id)
     
     if game_state['state'] != 'OPEN':
         return jsonify({"status": "error", "message": "Entry is not open"}), 400
@@ -742,18 +943,24 @@ def join_enter():
         game_state['player1_id'] = game_state['waiting_participants'][0]['id']
         game_state['player2_id'] = game_state['waiting_participants'][1]['id']
         
-        # Bind roles in database
-        set_participant_binding(CURRENT_SESSION_GAME_ID, game_state['player1_id'], 'player1')
-        set_participant_binding(CURRENT_SESSION_GAME_ID, game_state['player2_id'], 'player2')
+        # Save updated state to Redis
+        set_game_state(current_game_id, game_state)
         
-        record_event("system", "entry_closed", CURRENT_SESSION_GAME_ID, text="Capacity reached (2/2)")
-        print(f"Game {CURRENT_SESSION_GAME_ID} ready with 2 participants")
+        # Bind roles in database
+        set_participant_binding(current_game_id, game_state['player1_id'], 'player1')
+        set_participant_binding(current_game_id, game_state['player2_id'], 'player2')
+        
+        record_event("system", "entry_closed", current_game_id, text="Capacity reached (2/2)")
+        print(f"Game {current_game_id} ready with 2 participants")
+    else:
+        # Save updated state to Redis
+        set_game_state(current_game_id, game_state)
     
     return jsonify({
         "status": "ok",
         "participant_id": participant_id,
         "waiting_count": len(game_state['waiting_participants']),
-        "game_id": CURRENT_SESSION_GAME_ID,
+        "game_id": current_game_id,
     })
 
 
@@ -768,8 +975,6 @@ def moderator_control():
 @app.route("/moderator/control/status")
 def moderator_control_status():
     """Get current game state for moderator."""
-    global GAME_STATES, CURRENT_SESSION_GAME_ID
-    
     if not session.get("moderator"):
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
@@ -778,15 +983,15 @@ def moderator_control_status():
     
     # If moderator doesn't have a game_id in session, check the global
     if not moderator_game_id:
-        moderator_game_id = CURRENT_SESSION_GAME_ID
+        moderator_game_id = get_current_session_game_id()
     
-    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+    if not moderator_game_id or not get_game_state(moderator_game_id):
         return jsonify({
             "status": "no_session",
             "message": "No active session"
         })
     
-    game_state = GAME_STATES[moderator_game_id]
+    game_state = get_game_state(moderator_game_id)
     
     # If session is CLOSED, clear it so moderator starts fresh
     if game_state['state'] == 'CLOSED':
@@ -809,16 +1014,24 @@ def moderator_control_status():
 @app.route("/moderator/control/open", methods=["POST"])
 def moderator_open_entry():
     """Moderator opens entry for participants."""
-    global GAME_STATES, CURRENT_SESSION_GAME_ID
-    
     if not session.get("moderator"):
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
+    game_state = get_game_state(moderator_game_id) if moderator_game_id else None
     
-    # Create new session if none exists or previous is ended/closed
-    if not moderator_game_id or moderator_game_id not in GAME_STATES or \
-       GAME_STATES.get(moderator_game_id, {}).get('state') in ['ENDED', 'IN_PROGRESS', 'CLOSED']:
+    # Auto-reset and reopen ended/closed sessions; create new if none exists or in progress
+    if moderator_game_id and game_state and game_state.get('state') in ['ENDED', 'CLOSED']:
+        game_state['state'] = 'OPEN'
+        game_state['waiting_participants'] = []
+        game_state['player1_id'] = None
+        game_state['player2_id'] = None
+        set_game_state(moderator_game_id, game_state)
+        set_current_session_game_id(moderator_game_id)
+        record_event("system", "session_reset", moderator_game_id, text="Auto-reset on open entry")
+        record_event("system", "entry_opened", moderator_game_id, text="Entry opened after auto-reset")
+        print(f"🔄 Auto-reset and opened entry for session {moderator_game_id}")
+    elif not moderator_game_id or not game_state or game_state.get('state') in ['IN_PROGRESS']:
         # Create new game
         game_id = uuid.uuid4().hex
         chosen_card = random.choice(CARDS)["id"]
@@ -833,31 +1046,21 @@ def moderator_open_entry():
         
         moderator_game_id = game_id
         session['moderator_session_game_id'] = game_id
-        GAME_STATES[game_id] = {
+        set_game_state(game_id, {
             'state': 'OPEN',
             'waiting_participants': [],
             'player1_id': None,
             'player2_id': None
-        }
+        })
         
         # Update the global for participant joins
-        CURRENT_SESSION_GAME_ID = game_id
-        globals()['CURRENT_SESSION_GAME_ID'] = game_id
+        set_current_session_game_id(game_id)
         
         record_event("system", "session_created", game_id, text=f"New session created, entry opened")
         print(f"✅ Created new session {game_id} and opened entry")
     else:
-        # Open existing session - should not happen if moderator resets properly
-        # but as a safety measure, ensure we're using the right game
-        game_state = GAME_STATES[moderator_game_id]
-        if game_state['state'] == 'CLOSED':
-            game_state['state'] = 'OPEN'
-            game_state['waiting_participants'] = []
-            # Also update global
-            CURRENT_SESSION_GAME_ID = moderator_game_id
-            globals()['CURRENT_SESSION_GAME_ID'] = moderator_game_id
-            record_event("system", "entry_opened", moderator_game_id)
-            print(f"✅ Opened entry for session {moderator_game_id}")
+        # Open existing session when already open/ready
+        set_current_session_game_id(moderator_game_id)
     
     return jsonify({"status": "ok", "game_id": moderator_game_id})
 
@@ -865,17 +1068,20 @@ def moderator_open_entry():
 @app.route("/moderator/control/close", methods=["POST"])
 def moderator_close_entry():
     """Moderator closes entry for participants."""
-    global GAME_STATES
-    
     if not session.get("moderator"):
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
-    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+    if not moderator_game_id:
+        moderator_game_id = get_current_session_game_id()
+        if moderator_game_id:
+            session['moderator_session_game_id'] = moderator_game_id
+    if not moderator_game_id or not get_game_state(moderator_game_id):
         return jsonify({"status": "error", "message": "No active session"}), 400
     
-    game_state = GAME_STATES[moderator_game_id]
+    game_state = get_game_state(moderator_game_id)
     game_state['state'] = 'CLOSED'
+    set_game_state(moderator_game_id, game_state)
     
     record_event("system", "entry_closed", moderator_game_id, text="Manually closed by moderator")
     print(f"🔒 Closed entry for session {moderator_game_id}")
@@ -886,16 +1092,18 @@ def moderator_close_entry():
 @app.route("/moderator/control/start", methods=["POST"])
 def moderator_start_game():
     """Moderator starts the game (transitions READY -> IN_PROGRESS)."""
-    global GAME_STATES, CURRENT_SESSION_GAME_ID
-    
     if not session.get("moderator"):
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
-    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+    if not moderator_game_id:
+        moderator_game_id = get_current_session_game_id()
+        if moderator_game_id:
+            session['moderator_session_game_id'] = moderator_game_id
+    if not moderator_game_id or not get_game_state(moderator_game_id):
         return jsonify({"status": "error", "message": "No active session"}), 400
     
-    game_state = GAME_STATES[moderator_game_id]
+    game_state = get_game_state(moderator_game_id)
     
     if game_state['state'] != 'READY':
         return jsonify({"status": "error", "message": f"Cannot start game in state: {game_state['state']}"}), 400
@@ -904,9 +1112,10 @@ def moderator_start_game():
         return jsonify({"status": "error", "message": "Missing player IDs"}), 400
     
     game_state['state'] = 'IN_PROGRESS'
+    set_game_state(moderator_game_id, game_state)
     
     # Update global for participant joins
-    CURRENT_SESSION_GAME_ID = moderator_game_id
+    set_current_session_game_id(moderator_game_id)
     
     record_event("system", "game_started", moderator_game_id, 
                  text=f"Game started with P1={game_state['player1_id'][:8]}... P2={game_state['player2_id'][:8]}...")
@@ -924,17 +1133,22 @@ def moderator_start_game():
 @app.route("/moderator/control/end", methods=["POST"])
 def moderator_end_game():
     """Moderator ends the game (transitions IN_PROGRESS -> ENDED)."""
-    global GAME_STATES, CURRENT_SESSION_GAME_ID
-    
     if not session.get("moderator"):
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
-    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+    if not moderator_game_id:
+        moderator_game_id = get_current_session_game_id()
+        if moderator_game_id:
+            session['moderator_session_game_id'] = moderator_game_id
+    if not moderator_game_id or not get_game_state(moderator_game_id):
         return jsonify({"status": "error", "message": "No active session"}), 400
     
-    game_state = GAME_STATES[moderator_game_id]
+    game_state = get_game_state(moderator_game_id)
+    if game_state.get('state') == 'CLOSED':
+        return jsonify({"status": "error", "message": "No active session"}), 400
     game_state['state'] = 'ENDED'
+    set_game_state(moderator_game_id, game_state)
     
     record_event("system", "game_ended", moderator_game_id)
     print(f"🏁 Ended game {moderator_game_id}")
@@ -945,24 +1159,26 @@ def moderator_end_game():
 @app.route("/moderator/control/reset", methods=["POST"])
 def moderator_reset_session():
     """Moderator resets session (transitions ENDED -> CLOSED)."""
-    global GAME_STATES, CURRENT_SESSION_GAME_ID
-    
     if not session.get("moderator"):
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
-    if not moderator_game_id or moderator_game_id not in GAME_STATES:
+    if not moderator_game_id:
+        moderator_game_id = get_current_session_game_id()
+        if moderator_game_id:
+            session['moderator_session_game_id'] = moderator_game_id
+    if not moderator_game_id or not get_game_state(moderator_game_id):
         return jsonify({"status": "error", "message": "No active session"}), 400
     
-    game_state = GAME_STATES[moderator_game_id]
+    game_state = get_game_state(moderator_game_id)
     game_state['state'] = 'CLOSED'
     game_state['waiting_participants'] = []
     game_state['player1_id'] = None
     game_state['player2_id'] = None
+    set_game_state(moderator_game_id, game_state)
     
     # Clear the global session tracker so participants see "entry closed"
-    CURRENT_SESSION_GAME_ID = None
-    globals()['CURRENT_SESSION_GAME_ID'] = None
+    set_current_session_game_id(None)
     session['moderator_session_game_id'] = None
     
     record_event("system", "session_reset", moderator_game_id)
@@ -1035,11 +1251,9 @@ def validate_role_binding(game_id, participant_id, claimed_role):
     if not participant_id:
         return True, None  # No participant_id provided — allow (backward compat)
     
-    key = (game_id, participant_id)
-    if key in PARTICIPANT_ROLES:
-        bound_role = PARTICIPANT_ROLES[key]
-        if bound_role != claimed_role:
-            return False, f"Role mismatch: participant bound to {bound_role}, not {claimed_role}"
+    bound_role = get_participant_role(game_id, participant_id)
+    if bound_role and bound_role != claimed_role:
+        return False, f"Role mismatch: participant bound to {bound_role}, not {claimed_role}"
     
     return True, None
 
@@ -1061,7 +1275,7 @@ def handle_join(data):
     
     # Bind participant_id to role for this game
     if participant_id:
-        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+        set_participant_role(game_id, participant_id, role)
     
     join_room(room)
     record_event(role, "join", game_id, participant_id=participant_id)
@@ -1099,7 +1313,7 @@ def handle_chat(data):
     
     # Bind participant_id to role for this game
     if participant_id:
-        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+        set_participant_role(game_id, participant_id, role)
     
     record_event(role, "chat", game_id, text=text, participant_id=participant_id)
     socketio.emit(
@@ -1126,18 +1340,16 @@ def handle_voice_join(data):
 
     # Bind participant_id to role for this game
     if participant_id:
-        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+        set_participant_role(game_id, participant_id, role)
 
-    if game_id not in VOICE_PARTICIPANTS:
-        VOICE_PARTICIPANTS[game_id] = {}
-
-    VOICE_PARTICIPANTS[game_id][client_id] = {"role": role, "socket_id": request.sid}
+    add_voice_participant(game_id, client_id, {"role": role, "socket_id": request.sid})
     record_event(role, "voice_join", game_id, participant_id=participant_id)
 
     # Send the list of existing peers to the new joiner
+    voice_participants = get_voice_participants(game_id)
     peers = [
         {"client_id": cid, "role": info["role"]}
-        for cid, info in VOICE_PARTICIPANTS[game_id].items()
+        for cid, info in voice_participants.items()
         if cid != client_id
     ]
     socketio.emit("peers_list", {"peers": peers}, to=request.sid)
@@ -1165,7 +1377,7 @@ def handle_webrtc_signal(data):
     
     # Bind participant_id to role for this game
     if participant_id:
-        PARTICIPANT_ROLES[(game_id, participant_id)] = role
+        set_participant_role(game_id, participant_id, role)
 
     payload = {
         "game_id": game_id,
@@ -1179,8 +1391,9 @@ def handle_webrtc_signal(data):
     record_event(role, "webrtc_signal", game_id, participant_id=participant_id)
 
     # Route to specific peer's socket
-    if game_id in VOICE_PARTICIPANTS and to_id in VOICE_PARTICIPANTS[game_id]:
-        target_socket = VOICE_PARTICIPANTS[game_id][to_id]["socket_id"]
+    voice_participants = get_voice_participants(game_id)
+    if to_id in voice_participants:
+        target_socket = voice_participants[to_id]["socket_id"]
         socketio.emit("webrtc_signal", payload, to=target_socket)
         print(f"Signal from {from_id} to {to_id} in game {game_id}")
     else:

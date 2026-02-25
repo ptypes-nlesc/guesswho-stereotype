@@ -36,7 +36,7 @@ class TestGameFlow:
         return tokens
     def test_create_game(self, client, reset_globals):
         """Test moderator creating a new game."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # First login
         self.moderator_login(client)
@@ -48,8 +48,9 @@ class TestGameFlow:
         assert data.get("status") == "ok"
         game_id = data.get("game_id")
         assert game_id is not None
-        assert game_id in GAME_STATES
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
+        game_state = get_game_state(game_id)
+        assert game_state is not None
+        assert game_state['state'] == 'OPEN'
 
     def test_generate_tokens(self, client, reset_globals):
         """Test generating access tokens for players."""
@@ -84,7 +85,7 @@ class TestGameFlow:
 
     def test_player_join_flow(self, client, reset_globals):
         """Test a player joining through token."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Create game and generate tokens
         self.moderator_login(client)
@@ -104,12 +105,13 @@ class TestGameFlow:
         assert participant_id_1 is not None
         
         # Game should still be OPEN with 1 waiting participant
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
-        assert len(GAME_STATES[game_id]['waiting_participants']) == 1
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'
+        assert len(game_state['waiting_participants']) == 1
 
     def test_game_ready_when_two_players_join(self, client, reset_globals):
         """Test game transitions to READY when 2 players join."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Create game and get tokens
         self.moderator_login(client)
@@ -125,7 +127,8 @@ class TestGameFlow:
         participant_id_1 = data1.get("participant_id")
         
         # Should still be OPEN
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'
         
         # Player 2 joins
         res2 = client.post("/join/enter", json={"token": tokens[1]})
@@ -133,13 +136,14 @@ class TestGameFlow:
         participant_id_2 = data2.get("participant_id")
         
         # Should now be READY
-        assert GAME_STATES[game_id]['state'] == 'READY'
-        assert GAME_STATES[game_id]['player1_id'] == participant_id_1
-        assert GAME_STATES[game_id]['player2_id'] == participant_id_2
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'READY'
+        assert game_state['player1_id'] == participant_id_1
+        assert game_state['player2_id'] == participant_id_2
 
     def test_game_start(self, client, reset_globals):
         """Test moderator starting the game."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Setup: create game, get 2 players to join
         self.moderator_login(client)
@@ -155,7 +159,8 @@ class TestGameFlow:
         # Moderator starts game
         res = client.post("/moderator/control/start", json={})
         assert res.status_code == 200
-        assert GAME_STATES[game_id]['state'] == 'IN_PROGRESS'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'IN_PROGRESS'
 
     def test_player_status_checks(self, client, reset_globals):
         """Test player status endpoints during game flow."""
@@ -190,25 +195,27 @@ class TestGameFlow:
 
     def test_moderator_close_entry(self, client, reset_globals):
         """Test moderator closing entry manually before 2 players join."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         self.moderator_login(client)
         res_open = client.post("/moderator/control/open", json={})
         game_id = json.loads(res_open.data).get("game_id")
         
         # Verify entry is OPEN
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'
         
         # Close entry
         res = client.post("/moderator/control/close", json={})
         assert res.status_code == 200
         
         # Verify state transitioned to CLOSED
-        assert GAME_STATES[game_id]['state'] == 'CLOSED'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'CLOSED'
 
     def test_moderator_end_game(self, client, reset_globals):
         """Test moderator ending a game in progress."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Setup: create game, 2 players join, start game
         self.moderator_login(client)
@@ -222,18 +229,20 @@ class TestGameFlow:
         client.post("/join/enter", json={"token": tokens[1]})
         
         client.post("/moderator/control/start", json={})
-        assert GAME_STATES[game_id]['state'] == 'IN_PROGRESS'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'IN_PROGRESS'
         
         # End game
         res = client.post("/moderator/control/end", json={})
         assert res.status_code == 200
         
         # Verify state transitioned to ENDED
-        assert GAME_STATES[game_id]['state'] == 'ENDED'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'ENDED'
 
     def test_moderator_reset_session(self, client, reset_globals):
         """Test moderator resetting a completed session."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Setup: create game, 2 players join, start, end
         self.moderator_login(client)
@@ -249,18 +258,20 @@ class TestGameFlow:
         client.post("/moderator/control/start", json={})
         client.post("/moderator/control/end", json={})
         
-        assert GAME_STATES[game_id]['state'] == 'ENDED'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'ENDED'
         
         # Reset session
         res = client.post("/moderator/control/reset", json={})
         assert res.status_code == 200
         
         # Verify state transitioned to CLOSED
-        assert GAME_STATES[game_id]['state'] == 'CLOSED'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'CLOSED'
         # Verify waiting list and players are cleared
-        assert GAME_STATES[game_id]['waiting_participants'] == []
-        assert GAME_STATES[game_id]['player1_id'] is None
-        assert GAME_STATES[game_id]['player2_id'] is None
+        assert game_state['waiting_participants'] == []
+        assert game_state['player1_id'] is None
+        assert game_state['player2_id'] is None
 
     def test_card_elimination_tracking(self, client, reset_globals):
         """Test that eliminated cards are properly tracked in database."""
@@ -295,14 +306,15 @@ class TestGameFlow:
 
     def test_full_game_lifecycle(self, client, reset_globals):
         """Test complete game lifecycle: open → join → start → eliminate → end → reset."""
-        from app import GAME_STATES, get_eliminated_cards
+        from app import get_game_state, get_eliminated_cards
         
         # 1. Moderator opens entry
         self.moderator_login(client)
         res_open = client.post("/moderator/control/open", json={})
         assert res_open.status_code == 200
         game_id = json.loads(res_open.data).get("game_id")
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'
         
         # 2. Generate tokens
         tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
@@ -313,16 +325,19 @@ class TestGameFlow:
         # 3. Two players join → state should transition to READY
         res1 = client.post("/join/enter", json={"token": tokens[0]})
         assert res1.status_code == 200
-        assert GAME_STATES[game_id]['state'] == 'OPEN'  # Still open with 1 player
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'  # Still open with 1 player
         
         res2 = client.post("/join/enter", json={"token": tokens[1]})
         assert res2.status_code == 200
-        assert GAME_STATES[game_id]['state'] == 'READY'  # Now ready with 2 players
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'READY'  # Now ready with 2 players
         
         # 4. Moderator starts game
         res_start = client.post("/moderator/control/start", json={})
         assert res_start.status_code == 200
-        assert GAME_STATES[game_id]['state'] == 'IN_PROGRESS'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'IN_PROGRESS'
         
         # 5. Players eliminate cards
         eliminated_cards = [2, 4, 6, 8, 10]
@@ -339,15 +354,17 @@ class TestGameFlow:
         # 6. Moderator ends game
         res_end = client.post("/moderator/control/end", json={})
         assert res_end.status_code == 200
-        assert GAME_STATES[game_id]['state'] == 'ENDED'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'ENDED'
         
         # 7. Moderator resets session
         res_reset = client.post("/moderator/control/reset", json={})
         assert res_reset.status_code == 200
-        assert GAME_STATES[game_id]['state'] == 'CLOSED'
-        assert GAME_STATES[game_id]['waiting_participants'] == []
-        assert GAME_STATES[game_id]['player1_id'] is None
-        assert GAME_STATES[game_id]['player2_id'] is None
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'CLOSED'
+        assert game_state['waiting_participants'] == []
+        assert game_state['player1_id'] is None
+        assert game_state['player2_id'] is None
 
     def test_cannot_join_when_entry_closed(self, client, reset_globals):
         """Test that players cannot join when entry is closed."""
@@ -393,7 +410,7 @@ class TestGameFlow:
 
     def test_cannot_start_game_without_players(self, client, reset_globals):
         """Test that game cannot start without 2 players joined."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Setup: Create game but no players join
         self.moderator_login(client)
@@ -407,11 +424,12 @@ class TestGameFlow:
         assert data.get("status") == "error"
         
         # Verify state is still OPEN, not IN_PROGRESS
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'
 
     def test_cannot_start_game_with_one_player(self, client, reset_globals):
         """Test that game cannot start with only 1 player."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Setup: Create game and get 1 player to join
         self.moderator_login(client)
@@ -425,7 +443,8 @@ class TestGameFlow:
         client.post("/join/enter", json={"token": tokens[0]})
         
         # Game should still be OPEN with 1 player
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'
         
         # Try to start game when state is OPEN (should fail)
         res = client.post("/moderator/control/start", json={})
@@ -434,6 +453,7 @@ class TestGameFlow:
         assert data.get("status") == "error"
         
         # Verify state is still OPEN
-        assert GAME_STATES[game_id]['state'] == 'OPEN'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'OPEN'
 
 
