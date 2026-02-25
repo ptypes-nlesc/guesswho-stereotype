@@ -66,8 +66,6 @@ class TestRoleBinding:
 
     def test_role_binding_enforced_on_routes(self, client, reset_globals):
         """Test that wrong role cannot access a player's page."""
-        from app import PARTICIPANT_ROLES
-        
         # Setup: create game and add 2 players
         self.moderator_login(client)
         res_open = client.post("/moderator/control/open", json={})
@@ -111,12 +109,12 @@ class TestRoleBinding:
         # Player 1 tries to emit as player2 → should be rejected by validate_role_binding
         # Note: validate_role_binding is lenient for backward compat in some cases
         # but will track the mismatch
-        from app import PARTICIPANT_ROLES
+        from app import get_participant_role
         
         # Emit with mismatched role should still be accepted by validate_role_binding
         # but let's verify the role was bound correctly on first join
-        assert (game_id, player1_id) in PARTICIPANT_ROLES
-        assert PARTICIPANT_ROLES[(game_id, player1_id)] == 'player1'
+        bound_role = get_participant_role(game_id, player1_id)
+        assert bound_role == 'player1'
 
     def test_role_binding_multiple_games(self, client, reset_globals):
         """Test role bindings isolated per game - each game has independent role assignment."""
@@ -209,7 +207,7 @@ class TestRoleBinding:
 
     def test_role_assignment_order(self, client, reset_globals):
         """Test that first joiner becomes player1, second becomes player2."""
-        from app import get_participant_binding, GAME_STATES
+        from app import get_participant_binding, get_game_state
         
         self.moderator_login(client)
         res_open = client.post("/moderator/control/open", json={})
@@ -237,9 +235,10 @@ class TestRoleBinding:
         assert p1_role == 'player1'
         assert p2_role == 'player2'
         
-        # Verify GAME_STATES also tracks them
-        assert GAME_STATES[game_id]['player1_id'] == p1_id
-        assert GAME_STATES[game_id]['player2_id'] == p2_id
+        # Verify game state also tracks them
+        game_state = get_game_state(game_id)
+        assert game_state['player1_id'] == p1_id
+        assert game_state['player2_id'] == p2_id
 
     def test_nonexistent_participant_rejected(self, client, reset_globals):
         """Test that accessing with non-existent participant_id shows error."""

@@ -120,7 +120,7 @@ class TestGamePlay:
 
     def test_end_game(self, client, reset_globals):
         """Test moderator ending the game."""
-        from app import GAME_STATES
+        from app import get_game_state
         
         # Setup: start a game
         self.moderator_login(client)
@@ -137,7 +137,8 @@ class TestGamePlay:
         # End game
         res = client.post("/moderator/control/end", json={})
         assert res.status_code == 200
-        assert GAME_STATES[game_id]['state'] == 'ENDED'
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'ENDED'
 
     def test_cannot_eliminate_after_game_ends(self, client, reset_globals):
         """Test that eliminations are still logged even after game ends."""
