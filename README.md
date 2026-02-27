@@ -5,19 +5,13 @@
 ![License](https://img.shields.io/badge/License-Apache%202.0-orange)
 [![CI](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml/badge.svg)](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml)
 
-## ✨ Features 
-"XPOSED" is an interactive web application inspired by the classic “Guess Who?” game, designed to explore how people express stereotypes. Instead of discussing stereotypes explicitly, players reveal their reasoning through the process of asking yes/no questions and eliminating characters — while a moderator observes and asks clarifying questions.
+## 📖 Overview
 
+This web application is a deduction-style board game designed to explore how people express stereotypes through reasoning and decision-making. 
 
----
+**How it works:** Two players face off with a board of 12 characters. One player draws a secret target character; the other must deduce it by asking feature-based questions. With each answer, characters are eliminated from the board. The game continues over multiple rounds until only one character remains.
 
-## ✨ Features 
-
-- 🧑‍🎓 **Player 1** – sees one *secret* card and answers yes/no questions  
-- 🧑‍🚀 **Player 2** – sees all character cards, asks questions, and eliminates options based on the answers
-- 🧑‍⚖️ **Moderator** – monitors both players in real time, manages game sessions (start/end/reset)
-- 💬 **Real-time communication** powered by Socket.IO (synchronized questions, answers, and card eliminations)
-- 🗃️ **MySQL/MariaDB logging** of all events (chat, eliminations, system messages)
+Players communicate via real-time text chat and voice, with all interactions automatically recorded and stored in a database for research analysis. A moderator observes the session and can ask clarifying questions to understand the players' reasoning patterns.
 
 ---
 
