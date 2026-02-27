@@ -1,6 +1,7 @@
 ![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-2.x-lightgrey?logo=flask)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-Realtime--Communication-green?logo=socketdotio)
+![Redis](https://img.shields.io/badge/Redis-Cache-red?logo=redis)
 ![License](https://img.shields.io/badge/License-Apache%202.0-orange)
 [![CI](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml/badge.svg)](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml)
 
@@ -27,6 +28,7 @@
 | **Frontend**       | HTML + JavaScript (Socket.IO)         |
 | **Backend**        | Flask (Python 3.13) + Flask-SocketIO |
 | **Database**       | MySQL / MariaDB      |
+| **Cache/Session**  | Redis                |
 | **Deployment**     | Local (MVP) → AKS later       |
 | **Audio** | WebRTC              |
 
