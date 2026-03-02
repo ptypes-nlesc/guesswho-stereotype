@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
+    <script src="{{ url_for('static', filename='endgame.js') }}"></script>
 </head>
 
 <body>
@@ -60,6 +61,25 @@
         // Track seen joins by role to avoid duplicate join messages in UI
         const seenJoins = new Set();
 
+        // --- Helper functions (must be defined before use) ---------------
+        function appendMessage(msg, style = '') {
+            const div = document.createElement('div');
+            div.innerHTML = msg;
+            if (style) div.style = style;
+            transcriptDiv.appendChild(div);
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        }
+
+        const endOfGameHighlighter = createEndOfGameHighlighter({appendMessage});
+
+        function countRemainingCards() {
+            return endOfGameHighlighter.countRemainingCards();
+        }
+
+        function checkEndOfGame() {
+            endOfGameHighlighter.checkEndOfGame();
+        }
+
         // --- Load chat history on page load -------------------------------
         fetch(`/transcript?game_id=${gameId}&limit=200`)
             .then(r => r.json())
@@ -77,6 +97,8 @@
                         appendMessage(`<em>Eliminated card: ${entry.card}</em>`, 'color:red;');
                     }
                 });
+                // Check if end-of-game condition already met when loading history
+                checkEndOfGame();
             })
             .catch(err => console.error('Failed to load transcript:', err));
 
@@ -148,15 +170,6 @@
         // Then set up polling every 2 seconds
         const gameStatusInterval = setInterval(checkGameStatus, 2000);
 
-        // --- Helper functions ------------------------------------------
-        function appendMessage(msg, style = '') {
-            const div = document.createElement('div');
-            div.innerHTML = msg;
-            if (style) div.style = style;
-            transcriptDiv.appendChild(div);
-            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
-        }
-
         // --- Chat -------------------------------------------------------
         const sendChat = () => {
             const text = chatInput.value.trim();
@@ -194,17 +207,35 @@
             if (cardEl && cardEl.classList.contains('eliminated')) {
                 return;
             }
+
+            // If only one card remains, end game silently
+            if (countRemainingCards() <= 1) {
+                checkEndOfGame();
+                return;
+            }
+
             fetch('/eliminate_card', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({game_id: gameId, card_id: cardId})
-            }).catch(err => console.error('Failed to eliminate:', err));
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'error') {
+                    // Keep it silent and ensure end-of-game UI is shown
+                    checkEndOfGame();
+                }
+            })
+            .catch(err => console.error('Failed to eliminate:', err));
         }
 
         socket.on('eliminate', data => {
             appendMessage(`<em>Eliminated card: ${data.card}</em>`, 'color:red;');
             const cardEl = document.getElementById(`card${data.card}`);
             if (cardEl) cardEl.classList.add('eliminated');
+            
+            // Check if we've reached end of game (only 1 card left)
+            setTimeout(checkEndOfGame, 100);
         });
 
         // --- Voice (WebRTC) -------------------------------------------

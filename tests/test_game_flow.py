@@ -240,6 +240,41 @@ class TestGameFlow:
         game_state = get_game_state(game_id)
         assert game_state['state'] == 'ENDED'
 
+    def test_open_after_end_creates_new_game(self, client, reset_globals):
+        """Opening entry after game end should create a fresh game session."""
+        from app import get_game_state
+
+        self.moderator_login(client)
+
+        # Open first game and move it to ENDED
+        res_open_1 = client.post("/moderator/control/open", json={})
+        first_game_id = json.loads(res_open_1.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+        client.post("/moderator/control/end", json={})
+
+        first_game_state = get_game_state(first_game_id)
+        assert first_game_state['state'] == 'ENDED'
+
+        # Open again - should create a NEW game id, not reuse old game
+        res_open_2 = client.post("/moderator/control/open", json={})
+        assert res_open_2.status_code == 200
+        second_game_id = json.loads(res_open_2.data).get("game_id")
+
+        assert second_game_id is not None
+        assert second_game_id != first_game_id
+
+        second_game_state = get_game_state(second_game_id)
+        assert second_game_state is not None
+        assert second_game_state['state'] == 'OPEN'
+        assert second_game_state['waiting_participants'] == []
+        assert second_game_state['player1_id'] is None
+        assert second_game_state['player2_id'] is None
+
     def test_moderator_reset_session(self, client, reset_globals):
         """Test moderator resetting a completed session."""
         from app import get_game_state
