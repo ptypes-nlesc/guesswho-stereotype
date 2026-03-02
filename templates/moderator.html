@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
+    <script src="{{ url_for('static', filename='endgame.js') }}"></script>
 </head>
 
 <body>
@@ -103,6 +104,7 @@
                         appendMessage(`<em>Eliminated card: ${entry.card}</em>`, 'color:red;');
                     }
                 });
+                checkEndOfGame();
             })
             .catch(err => console.error('Failed to load transcript:', err));
         
@@ -171,6 +173,12 @@
             transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
         }
 
+        const endOfGameHighlighter = createEndOfGameHighlighter({appendMessage});
+
+        function checkEndOfGame() {
+            endOfGameHighlighter.checkEndOfGame();
+        }
+
         // --- Chat send ------------------------------------------------
         const sendChat = () => {
             const text = chatInput.value.trim();
@@ -201,6 +209,7 @@
             appendMessage(`<em>Eliminated card: ${data.card}</em>`, "color:red;");
             const cardEl = document.getElementById(`card${data.card}`);
             if (cardEl) cardEl.classList.add("eliminated");
+            setTimeout(checkEndOfGame, 100);
         });
 
         // --- Voice (WebRTC) -------------------------------------------
