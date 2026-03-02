@@ -1,12 +1,22 @@
 // submitQuestion and sendAnswer removed: UI no longer exposes direct question/answer controls
 
-function eliminateCard(id) {
-  document.getElementById('card' + id).classList.add('eliminated');
+function eliminateCard(id, gameId = 'default') {
   fetch('/eliminate_card', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ card_id: id }),
-  });
+    body: JSON.stringify({ card_id: id, game_id: gameId }),
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      // Only add eliminated class if server accepts
+      const cardEl = document.getElementById('card' + id);
+      if (cardEl) cardEl.classList.add('eliminated');
+    } else if (data.status === 'error') {
+      console.error('Elimination rejected:', data.message);
+    }
+  })
+  .catch(err => console.error('Failed to eliminate:', err));
 }
 // submitNote removed: moderator no longer saves notes via the UI
 

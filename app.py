@@ -728,6 +728,15 @@ def eliminate_card():
     if int(card_id) in eliminated:
         return jsonify({"status": "ok"})  # Already eliminated, no action needed
 
+    # End-of-game logic: prevent eliminating the final remaining card
+    # Always keep at least 1 card remaining
+    total_cards = len(CARDS)  # 12 cards total
+    if len(eliminated) >= total_cards - 1:
+        return jsonify({
+            "status": "error", 
+            "message": "Cannot eliminate all cards. At least one card must remain."
+        }), 400
+
     record_event("player2", "eliminate", game_id, card=card_id)
     socketio.emit(
         "eliminate",
@@ -1021,18 +1030,9 @@ def moderator_open_entry():
     moderator_game_id = session.get('moderator_session_game_id')
     game_state = get_game_state(moderator_game_id) if moderator_game_id else None
     
-    # Auto-reset and reopen ended/closed sessions; create new if none exists or in progress
-    if moderator_game_id and game_state and game_state.get('state') in ['ENDED', 'CLOSED']:
-        game_state['state'] = 'OPEN'
-        game_state['waiting_participants'] = []
-        game_state['player1_id'] = None
-        game_state['player2_id'] = None
-        set_game_state(moderator_game_id, game_state)
-        set_current_session_game_id(moderator_game_id)
-        record_event("system", "session_reset", moderator_game_id, text="Auto-reset on open entry")
-        record_event("system", "entry_opened", moderator_game_id, text="Entry opened after auto-reset")
-        print(f"🔄 Auto-reset and opened entry for session {moderator_game_id}")
-    elif not moderator_game_id or not game_state or game_state.get('state') in ['IN_PROGRESS']:
+    # Create a fresh game after ENDED/CLOSED to avoid stale cards/eliminations.
+    # Also create new when no session exists or state cannot be resolved.
+    if not moderator_game_id or not game_state or game_state.get('state') in ['ENDED', 'CLOSED']:
         # Create new game
         game_id = uuid.uuid4().hex
         chosen_card = random.choice(CARDS)["id"]
@@ -1057,8 +1057,10 @@ def moderator_open_entry():
         # Update the global for participant joins
         set_current_session_game_id(game_id)
         
-        record_event("system", "session_created", game_id, text=f"New session created, entry opened")
+        record_event("system", "session_created", game_id, text="New session created, entry opened")
         print(f"✅ Created new session {game_id} and opened entry")
+    elif game_state.get('state') == 'IN_PROGRESS':
+        return jsonify({"status": "error", "message": "Cannot open entry while game is in progress"}), 400
     else:
         # Open existing session when already open/ready
         set_current_session_game_id(moderator_game_id)
