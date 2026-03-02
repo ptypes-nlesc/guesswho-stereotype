@@ -250,3 +250,84 @@ class TestGamePlay:
         res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": 5})
         # App accepts eliminations anytime (for flexible research flow)
         assert res.status_code == 200
+
+    def test_cannot_eliminate_all_cards(self, client, reset_globals):
+        """Test end-of-game logic: cannot eliminate all 12 cards, must leave at least 1."""
+        from app import get_eliminated_cards
+        
+        # Setup: start a game
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+        
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+        
+        # Eliminate 11 cards (cards 1 through 11) - should all succeed
+        for card_id in range(1, 12):
+            res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": card_id})
+            assert res.status_code == 200
+            data = json.loads(res.data)
+            assert data.get("status") == "ok"
+        
+        # Verify 11 cards are eliminated
+        eliminated = get_eliminated_cards(game_id)
+        assert len(eliminated) == 11
+        
+        # Try to eliminate the last remaining card - should fail
+        last_remaining_card = next(card_id for card_id in range(1, 13) if card_id not in eliminated)
+        res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": last_remaining_card})
+        assert res.status_code == 400  # Should fail
+        data = json.loads(res.data)
+        assert data.get("status") == "error"
+        assert "at least one card must remain" in data.get("message", "").lower()
+        
+        # Verify still only 11 cards eliminated (last card not added)
+        eliminated = get_eliminated_cards(game_id)
+        assert len(eliminated) == 11
+        assert last_remaining_card not in eliminated
+        
+        # Verify any of the first 11 cards are still in eliminated set
+        for card_id in range(1, 12):
+            assert card_id in eliminated
+
+    def test_cannot_eliminate_different_last_card(self, client, reset_globals):
+        """Test that any card can be the last remaining card."""
+        from app import get_eliminated_cards
+        
+        # Setup: start a game
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+        
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+        
+        # Eliminate 11 cards, leaving card 5 as the last one
+        # Eliminate cards 1,2,3,4,6,7,8,9,10,11,12 (all except 5)
+        cards_to_eliminate = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]
+        for card_id in cards_to_eliminate[:11]:  # First 11 should work
+            res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": card_id})
+            assert res.status_code == 200
+        
+        eliminated = get_eliminated_cards(game_id)
+        assert len(eliminated) == 11
+        
+        # Try to eliminate card 5 (the last remaining card) - should fail
+        res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": 5})
+        assert res.status_code == 400
+        data = json.loads(res.data)
+        assert data.get("status") == "error"
+        
+        # Verify card 5 is NOT eliminated
+        eliminated = get_eliminated_cards(game_id)
+        assert 5 not in eliminated
+        assert len(eliminated) == 11
