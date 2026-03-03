@@ -1038,6 +1038,8 @@ def moderator_control_status():
         "status": "ok",
         "game_id": moderator_game_id,
         "state": game_state['state'],
+        "round_number": game_state.get('round_number', 1),
+        "can_swap_roles": game_state.get('state') == 'IN_PROGRESS' and game_state.get('round_number', 1) == 1,
         "waiting_count": len(game_state.get('waiting_participants', [])),
         "player1_id": game_state.get('player1_id'),
         "player2_id": game_state.get('player2_id')

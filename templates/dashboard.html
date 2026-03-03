@@ -166,6 +166,7 @@
         <div class="control-buttons">
             <button id="btn-open" class="control-btn btn-open">🔓 Open Entry</button>
             <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
+            <button id="btn-swap" class="control-btn btn-start">🔁 Swap Roles</button>
             <button id="btn-end" class="control-btn btn-end">⏹️ End Game</button>
         </div>
 
@@ -229,7 +230,7 @@
                         <div class="state-badge state-CLOSED">NO SESSION</div>
                         <p>Click "Open Entry" to create a new session</p>
                     `;
-                    updateButtons('NO_SESSION');
+                    updateButtons({ state: 'NO_SESSION', round_number: 1, can_swap_roles: false });
                 } else if (data.status === 'ok') {
                     currentState = data.state;
                     currentGameId = data.game_id;
@@ -244,7 +245,7 @@
                     } else if (data.state === 'READY') {
                         statusHtml += `<p>⏳ 2 participants ready - Click "Start Game" to begin</p>`;
                     } else if (data.state === 'IN_PROGRESS') {
-                        statusHtml += `<p>🎮 Game in progress</p>`;
+                        statusHtml += `<p>🎮 Game in progress (Round ${data.round_number || 1})</p>`;
                     } else if (data.state === 'ENDED') {
                         statusHtml += `<p>🏁 Game ended - Click "Open Entry" to start a new session</p>`;
                     }
@@ -284,20 +285,23 @@
                         document.getElementById('game-links-section').style.display = 'none';
                     }
 
-                    updateButtons(data.state);
+                    updateButtons(data);
                 }
             } catch (err) {
                 console.error('Status update failed:', err);
             }
         }
 
-        function updateButtons(state) {
+        function updateButtons(statusData) {
+            const state = statusData?.state;
             const btnOpen = document.getElementById('btn-open');
             const btnStart = document.getElementById('btn-start');
+            const btnSwap = document.getElementById('btn-swap');
             const btnEnd = document.getElementById('btn-end');
 
             btnOpen.disabled = true;
             btnStart.disabled = true;
+            btnSwap.disabled = true;
             btnEnd.disabled = true;
 
             if (state === 'NO_SESSION' || state === 'CLOSED' || state === 'ENDED') {
@@ -305,6 +309,9 @@
             }
             if (state === 'READY') {
                 btnStart.disabled = false;
+            }
+            if (statusData?.can_swap_roles === true) {
+                btnSwap.disabled = false;
             }
             if (state === 'OPEN' || state === 'READY' || state === 'IN_PROGRESS') {
                 btnEnd.disabled = false;
@@ -334,6 +341,21 @@
                     window.open(`/moderator?game_id=${data.game_id}`, '_blank');
                 } else {
                     alert('Failed to start game: ' + (data.message || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('btn-swap').onclick = async () => {
+            try {
+                const res = await fetch('/moderator/control/swap_roles', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    updateStatus();
+                    alert('✅ Roles swapped. Round 2 started.');
+                } else {
+                    alert('Failed to swap roles: ' + (data.message || 'Unknown error'));
                 }
             } catch (err) {
                 alert('Error: ' + err.message);
