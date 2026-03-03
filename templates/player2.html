@@ -170,6 +170,20 @@
         // Then set up polling every 2 seconds
         const gameStatusInterval = setInterval(checkGameStatus, 2000);
 
+        async function redirectToCurrentRole() {
+            if (!participantId) return;
+            try {
+                const res = await fetch(`/join/status?participant_id=${encodeURIComponent(participantId)}`);
+                const data = await res.json();
+                if (data.status !== 'in_game' || data.game_id !== gameId || !data.role) return;
+                const targetPath = data.role === 'player1' ? '/player1' : '/player2';
+                if (window.location.pathname === targetPath) return;
+                window.location.href = `${targetPath}?game_id=${encodeURIComponent(gameId)}&participant_id=${encodeURIComponent(participantId)}`;
+            } catch (err) {
+                console.error('Role redirect failed:', err);
+            }
+        }
+
         // --- Chat -------------------------------------------------------
         const sendChat = () => {
             const text = chatInput.value.trim();
@@ -198,6 +212,12 @@
                 seenJoins.add(key);
             }
             appendMessage(`<em>${data.role || 'System'} joined game ${data.game_id}</em>`, 'color:gray;');
+        });
+
+        socket.on('roles_swapped', data => {
+            if (!data || data.game_id !== gameId) return;
+            appendMessage('<em>Roles swapped. Redirecting to your Round 2 view...</em>', 'color:gray;');
+            setTimeout(redirectToCurrentRole, 300);
         });
 
         // --- Elimination logic -----------------------------------------
