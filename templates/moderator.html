@@ -212,6 +212,15 @@
             setTimeout(checkEndOfGame, 100);
         });
 
+        socket.on("roles_swapped", data => {
+            console.log("Roles swapped, refreshing moderator view");
+            appendMessage(`<em style="color: #0066cc;">⚠️ Roles have been swapped! Refreshing view...</em>`, "color: #0066cc; font-weight: bold;");
+            // Reload page to show new secret card and reset grid
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        });
+
         // --- Voice (WebRTC) -------------------------------------------
         setupVoice({
             socket,
