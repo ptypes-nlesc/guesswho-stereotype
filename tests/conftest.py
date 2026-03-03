@@ -12,9 +12,9 @@ load_dotenv()
 # Set CI defaults for MySQL if not already set by .env
 os.environ.setdefault('MYSQL_HOST', 'localhost')
 os.environ.setdefault('MYSQL_PORT', '3306')
-os.environ.setdefault('MYSQL_USER', 'exposed_user')
-os.environ.setdefault('MYSQL_PASSWORD', 'exposed_pass')
-os.environ.setdefault('MYSQL_DATABASE', 'exposeddb')
+os.environ.setdefault('MYSQL_USER', 'xposed_user')
+os.environ.setdefault('MYSQL_PASSWORD', 'xposed_pass')
+os.environ.setdefault('MYSQL_DATABASE', 'xposed_db')
 os.environ.setdefault('SECRET_KEY', 'test-secret-key')
 os.environ.setdefault('MODERATOR_PASSWORD', 'test-password')
 
