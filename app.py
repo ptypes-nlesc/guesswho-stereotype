@@ -348,8 +348,9 @@ def init_db():
             CREATE TABLE IF NOT EXISTS eliminated_cards (
                 game_id VARCHAR(255) NOT NULL,
                 card_id INT NOT NULL,
+                round_number INT DEFAULT 1,
                 eliminated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (game_id, card_id),
+                PRIMARY KEY (game_id, card_id, round_number),
                 FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
@@ -420,22 +421,33 @@ def log_event(entry):
             ),
         )
 
-        # Track eliminated cards
+        # Track eliminated cards with round_number
         if action == "eliminate" and card is not None:
+            # Get current round_number from game state
+            game_state = get_game_state(game_id)
+            current_round = game_state.get('round_number', 1) if game_state else 1
             c.execute(
                 """
-                REPLACE INTO eliminated_cards (game_id, card_id, eliminated_at)
-                VALUES (%s, %s, %s)
+                REPLACE INTO eliminated_cards (game_id, card_id, round_number, eliminated_at)
+                VALUES (%s, %s, %s, %s)
                 """,
-                (game_id, card, datetime.datetime.now().isoformat()),
+                (game_id, card, current_round, datetime.datetime.now().isoformat()),
             )
         # Context manager auto-commits
 
 
-def get_eliminated_cards(game_id):
+def get_eliminated_cards(game_id, round_number=None):
+    """Get eliminated cards for a specific round (defaults to current round from game state)."""
     with get_db_conn() as conn:
         c = conn.cursor()
-        c.execute("SELECT card_id FROM eliminated_cards WHERE game_id = %s", (game_id,))
+        if round_number is None:
+            # Auto-detect current round from game state
+            game_state = get_game_state(game_id)
+            round_number = game_state.get('round_number', 1) if game_state else 1
+        c.execute(
+            "SELECT card_id FROM eliminated_cards WHERE game_id = %s AND round_number = %s",
+            (game_id, round_number)
+        )
         return {row['card_id'] for row in c.fetchall()}
 
 
@@ -445,6 +457,13 @@ def get_chosen_card(game_id):
         c.execute("SELECT chosen_card FROM games WHERE id = %s", (game_id,))
         row = c.fetchone()
         return row['chosen_card'] if row else None
+
+
+def set_chosen_card(game_id, card_id):
+    """Update the secret card for a game (for round reset)."""
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE games SET chosen_card = %s WHERE id = %s", (card_id, game_id))
 
 
 def get_transcript(game_id, limit=200):
@@ -532,11 +551,13 @@ def get_participant_binding(game_id, participant_id):
 
 
 def set_participant_binding(game_id, participant_id, role):
-    """Store role binding in database."""
+    """Store or update role binding in database (upsert for role swaps)."""
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT IGNORE INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
+            """INSERT INTO participant_bindings (game_id, participant_id, role, created_at) 
+               VALUES (%s, %s, %s, %s)
+               ON DUPLICATE KEY UPDATE role = VALUES(role)""",
             (game_id, participant_id, role, datetime.datetime.now().isoformat()),
         )
 
@@ -725,8 +746,8 @@ def eliminate_card():
     if not card_id:
         return jsonify({"status": "error", "message": "card_id required"}), 400
 
-    # Check if card is already eliminated
-    eliminated = get_eliminated_cards(game_id)
+    # Check if card is already eliminated (in current round)
+    eliminated = get_eliminated_cards(game_id)  # Auto-detects current round
     if int(card_id) in eliminated:
         return jsonify({"status": "ok"})  # Already eliminated, no action needed
 
@@ -1163,6 +1184,90 @@ def moderator_end_game():
     print(f"🏁 Ended game {moderator_game_id}")
     
     return jsonify({"status": "ok"})
+
+
+@app.route("/moderator/control/swap_roles", methods=["POST"])
+def moderator_swap_roles():
+    """Moderator swaps player roles for round 2 in the same game session."""
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    moderator_game_id = session.get('moderator_session_game_id')
+    if not moderator_game_id:
+        moderator_game_id = get_current_session_game_id()
+        if moderator_game_id:
+            session['moderator_session_game_id'] = moderator_game_id
+    if not moderator_game_id or not get_game_state(moderator_game_id):
+        return jsonify({"status": "error", "message": "No active session"}), 400
+
+    game_state = get_game_state(moderator_game_id)
+
+    if game_state.get('state') != 'IN_PROGRESS':
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot swap roles in state: {game_state.get('state')}"
+        }), 400
+
+    current_round = game_state.get('round_number', 1)
+    if current_round != 1:
+        return jsonify({
+            "status": "error",
+            "message": "Role swap is only allowed once after round 1"
+        }), 400
+
+    old_player1_id = game_state.get('player1_id')
+    old_player2_id = game_state.get('player2_id')
+    if not old_player1_id or not old_player2_id:
+        return jsonify({"status": "error", "message": "Missing player IDs"}), 400
+
+    # Swap role assignments in game state
+    game_state['player1_id'] = old_player2_id
+    game_state['player2_id'] = old_player1_id
+    game_state['round_number'] = 2
+    game_state['round_phase'] = 'ACTIVE'
+    set_game_state(moderator_game_id, game_state)
+
+    # Persist role swap in DB and live role cache
+    set_participant_binding(moderator_game_id, old_player1_id, 'player2')
+    set_participant_binding(moderator_game_id, old_player2_id, 'player1')
+    set_participant_role(moderator_game_id, old_player1_id, 'player2')
+    set_participant_role(moderator_game_id, old_player2_id, 'player1')
+
+    # Draw and persist a new secret card for round 2
+    new_chosen_card = random.choice(CARDS)["id"]
+    set_chosen_card(moderator_game_id, new_chosen_card)
+
+    record_event(
+        "system",
+        "roles_swapped",
+        moderator_game_id,
+        text=(
+            f"Round 2 started: swapped roles; "
+            f"P1={game_state['player1_id'][:8]}... P2={game_state['player2_id'][:8]}..."
+        ),
+    )
+    record_event("system", "card_draw", moderator_game_id, card=new_chosen_card)
+
+    socketio.emit(
+        "roles_swapped",
+        {
+            "game_id": moderator_game_id,
+            "round_number": 2,
+            "player1_id": game_state['player1_id'],
+            "player2_id": game_state['player2_id'],
+        },
+        to=f"game:{moderator_game_id}",
+    )
+
+    print(f"🔁 Swapped roles for game {moderator_game_id}; round 2 started")
+
+    return jsonify({
+        "status": "ok",
+        "game_id": moderator_game_id,
+        "round_number": 2,
+        "player1_url": f"/player1?game_id={moderator_game_id}&participant_id={game_state['player1_id']}",
+        "player2_url": f"/player2?game_id={moderator_game_id}&participant_id={game_state['player2_id']}",
+    })
 
 
 @app.route("/moderator/control/reset", methods=["POST"])
