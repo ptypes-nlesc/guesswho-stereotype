@@ -9,9 +9,11 @@
 
 This web application is a deduction-style board game designed to explore how people express stereotypes through reasoning and decision-making. 
 
-**How it works:** Two players face off with a board of 12 characters. One player draws a secret target character; the other must deduce it by asking feature-based questions. With each answer, characters are eliminated from the board. The game continues over multiple rounds until only one character remains.
+**How it works:** Two players face off:
+- **Player 1 (Secret Holder):** Draws a secret target character and answers Player 2's questions
+- **Player 2 (Guesser):** Sees a grid of 12 characters and asks feature-based questions to deduce the secret character. With each answer, Player 2 eliminates non-matching characters from the board.
 
-Players communicate via real-time text chat and voice, with all interactions automatically recorded and stored in a database for research analysis. A moderator observes the session and can ask clarifying questions to understand the players' reasoning patterns.
+When the game ends (i.e., one card remains), the roles swap for the next round. Players communicate via real-time text chat and voice, with all interactions automatically recorded and stored in a database for research analysis. A moderator observes the session and can ask clarifying questions to understand the players' reasoning patterns.
 
 ---
 
@@ -44,7 +46,7 @@ Create a `.env` file with the required settings.
 To connect with the CLI using the current configuration:
 
 ```bash
-mysql -h localhost -P 3306 -u exposed_user -p exposeddb
+mysql -h localhost -P 3306 -u xposed_user -p xposed_db
 ```
 
 ### 3. Start the server
@@ -63,10 +65,11 @@ http://127.0.0.1:5000/
 - Participants join via the waiting page: `http://127.0.0.1:5000/join`
 - Once 2 participants have joined, click **"Start Game"**
 - Monitor the game session in real-time
+- Click **"Swap Roles"** when first round is completed to swap the roles
 - Click **"End Game"** when finished
-- Click **"Reset Session"** to prepare for the next pair of participants
 
 ---
 
+<img src="static/example1.png" alt="GuessWho Stereotype Research Game Logo" width="400">
 <img src="static/example2.png" alt="GuessWho Stereotype Research Game Logo" width="400">
-<img src="static/example.png" alt="GuessWho Stereotype Research Game Logo" width="400">
+<img src="static/example3.png" alt="GuessWho Stereotype Research Game Logo" width="400">
