@@ -18,9 +18,9 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root
-          MYSQL_USER: exposed_user
-          MYSQL_PASSWORD: exposed_pass
-          MYSQL_DATABASE: exposeddb
+          MYSQL_USER: xposed_user
+          MYSQL_PASSWORD: xposed_pass
+          MYSQL_DATABASE: xposed_db
         options: >-
           --health-cmd="mysqladmin ping"
           --health-interval=10s
@@ -52,9 +52,9 @@ jobs:
           echo "MYSQL_ROOT_PASSWORD=root" >> .env
           echo "MYSQL_HOST=localhost" >> .env
           echo "MYSQL_PORT=3306" >> .env
-          echo "MYSQL_USER=exposed_user" >> .env
-          echo "MYSQL_PASSWORD=exposed_pass" >> .env
-          echo "MYSQL_DATABASE=exposeddb" >> .env
+          echo "MYSQL_USER=xposed_user" >> .env
+          echo "MYSQL_PASSWORD=xposed_pass" >> .env
+          echo "MYSQL_DATABASE=xposed_db" >> .env
 
       - name: Run tests with pytest
         run: pytest tests/ -v --tb=short
