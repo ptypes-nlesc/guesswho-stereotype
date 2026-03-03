@@ -391,8 +391,21 @@ def init_db():
                 game_id VARCHAR(255) NOT NULL,
                 participant_id VARCHAR(255) NOT NULL,
                 role VARCHAR(50),
+                round_number INT DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (game_id, participant_id),
+                PRIMARY KEY (game_id, participant_id, round_number),
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS game_round_cards (
+                game_id VARCHAR(255) NOT NULL,
+                round_number INT NOT NULL,
+                chosen_card INT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (game_id, round_number),
                 FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
@@ -465,18 +478,39 @@ def get_eliminated_cards(game_id, round_number=None):
 
 
 def get_chosen_card(game_id):
+    game_state = get_game_state(game_id)
+    current_round = game_state.get('round_number', 1) if game_state else 1
     with get_db_conn() as conn:
         c = conn.cursor()
+        c.execute(
+            "SELECT chosen_card FROM game_round_cards WHERE game_id = %s AND round_number = %s",
+            (game_id, current_round),
+        )
+        row = c.fetchone()
+        if row:
+            return row['chosen_card']
+
         c.execute("SELECT chosen_card FROM games WHERE id = %s", (game_id,))
         row = c.fetchone()
         return row['chosen_card'] if row else None
 
 
 def set_chosen_card(game_id, card_id):
-    """Update the secret card for a game (for round reset)."""
+    """Persist secret card for the current round without overwriting prior rounds."""
+    game_state = get_game_state(game_id)
+    current_round = game_state.get('round_number', 1) if game_state else 1
     with get_db_conn() as conn:
         c = conn.cursor()
-        c.execute("UPDATE games SET chosen_card = %s WHERE id = %s", (card_id, game_id))
+        c.execute(
+            """
+            INSERT INTO game_round_cards (game_id, round_number, chosen_card, created_at)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE chosen_card = VALUES(chosen_card)
+            """,
+            (game_id, current_round, card_id, datetime.datetime.now().isoformat()),
+        )
+        if current_round == 1:
+            c.execute("UPDATE games SET chosen_card = %s WHERE id = %s", (card_id, game_id))
 
 
 def get_transcript(game_id, limit=200):
@@ -556,22 +590,33 @@ def get_participant_binding(game_id, participant_id):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT role FROM participant_bindings WHERE game_id = %s AND participant_id = %s",
+            """
+            SELECT role
+            FROM participant_bindings
+            WHERE game_id = %s AND participant_id = %s
+            ORDER BY round_number DESC, created_at DESC
+            LIMIT 1
+            """,
             (game_id, participant_id),
         )
         row = c.fetchone()
         return row['role'] if row else None
 
 
-def set_participant_binding(game_id, participant_id, role):
-    """Store or update role binding in database (upsert for role swaps)."""
+def set_participant_binding(game_id, participant_id, role, round_number=None):
+    """Store role binding per round so role swaps keep historical rows."""
+    if round_number is None:
+        game_state = get_game_state(game_id)
+        round_number = game_state.get('round_number', 1) if game_state else 1
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            """INSERT INTO participant_bindings (game_id, participant_id, role, created_at) 
-               VALUES (%s, %s, %s, %s)
-               ON DUPLICATE KEY UPDATE role = VALUES(role)""",
-            (game_id, participant_id, role, datetime.datetime.now().isoformat()),
+            """
+            INSERT INTO participant_bindings (game_id, participant_id, role, round_number, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE role = VALUES(role)
+            """,
+            (game_id, participant_id, role, round_number, datetime.datetime.now().isoformat()),
         )
 
 # Helper to check role binding (now DB-backed)
@@ -992,9 +1037,9 @@ def join_enter():
         # Save updated state to Redis
         set_game_state(current_game_id, game_state)
         
-        # Bind roles in database
-        set_participant_binding(current_game_id, game_state['player1_id'], 'player1')
-        set_participant_binding(current_game_id, game_state['player2_id'], 'player2')
+        # Bind roles in database for round 1
+        set_participant_binding(current_game_id, game_state['player1_id'], 'player1', round_number=1)
+        set_participant_binding(current_game_id, game_state['player2_id'], 'player2', round_number=1)
         
         record_event("system", "entry_closed", current_game_id, text="Capacity reached (2/2)")
         print(f"Game {current_game_id} ready with 2 participants")
@@ -1085,6 +1130,13 @@ def moderator_open_entry():
             c.execute(
                 "INSERT INTO games (id, created_at, chosen_card) VALUES (%s, %s, %s)",
                 (game_id, datetime.datetime.now().isoformat(), chosen_card),
+            )
+            c.execute(
+                """
+                INSERT INTO game_round_cards (game_id, round_number, chosen_card, created_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (game_id, 1, chosen_card, datetime.datetime.now().isoformat()),
             )
         # Context manager auto-commits on successful exit
         
@@ -1251,8 +1303,8 @@ def moderator_swap_roles():
     set_game_state(moderator_game_id, game_state)
 
     # Persist role swap in DB and live role cache
-    set_participant_binding(moderator_game_id, old_player1_id, 'player2')
-    set_participant_binding(moderator_game_id, old_player2_id, 'player1')
+    set_participant_binding(moderator_game_id, old_player1_id, 'player2', round_number=2)
+    set_participant_binding(moderator_game_id, old_player2_id, 'player1', round_number=2)
     set_participant_role(moderator_game_id, old_player1_id, 'player2')
     set_participant_role(moderator_game_id, old_player2_id, 'player1')
 

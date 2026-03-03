@@ -493,7 +493,7 @@ class TestGameFlow:
 
     def test_swap_roles_round2_keeps_same_game_and_flips_bindings(self, client, reset_globals):
         """Swap should keep same game_id, flip player IDs/role bindings, and move to round 2."""
-        from app import get_game_state, get_participant_binding, get_chosen_card
+        from app import get_game_state, get_participant_binding, get_chosen_card, get_db_conn
 
         self.moderator_login(client)
         res_open = client.post("/moderator/control/open", json={})
@@ -526,6 +526,33 @@ class TestGameFlow:
         # Role bindings are flipped in DB
         assert get_participant_binding(game_id, p1_id) == 'player2'
         assert get_participant_binding(game_id, p2_id) == 'player1'
+
+        # Role swap is persisted as new round rows (history preserved)
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT role, round_number
+                FROM participant_bindings
+                WHERE game_id = %s AND participant_id = %s
+                ORDER BY round_number
+                """,
+                (game_id, p1_id),
+            )
+            p1_rows = c.fetchall()
+            c.execute(
+                """
+                SELECT role, round_number
+                FROM participant_bindings
+                WHERE game_id = %s AND participant_id = %s
+                ORDER BY round_number
+                """,
+                (game_id, p2_id),
+            )
+            p2_rows = c.fetchall()
+
+        assert [(r['role'], r['round_number']) for r in p1_rows] == [('player1', 1), ('player2', 2)]
+        assert [(r['role'], r['round_number']) for r in p2_rows] == [('player2', 1), ('player1', 2)]
 
         # Secret card was re-drawn for round 2
         round2_card = get_chosen_card(game_id)
