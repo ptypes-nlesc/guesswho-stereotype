@@ -121,7 +121,15 @@ def get_redis():
 def get_game_state(game_id):
     """Get game state from Redis. Returns dict or None."""
     if not get_redis():
-        return GAME_STATES.get(game_id)
+        data = GAME_STATES.get(game_id)
+        if not data:
+            return data
+        if 'round_number' in data:
+            try:
+                data['round_number'] = int(data['round_number'])
+            except (TypeError, ValueError):
+                data['round_number'] = 1
+        return data
     try:
         data = get_redis().hgetall(f"game:{game_id}:state")
         if not data:
@@ -129,6 +137,11 @@ def get_game_state(game_id):
         # Convert JSON fields and "null" sentinels
         if 'waiting_participants' in data:
             data['waiting_participants'] = json.loads(data['waiting_participants'])
+        if 'round_number' in data:
+            try:
+                data['round_number'] = int(data['round_number'])
+            except (TypeError, ValueError):
+                data['round_number'] = 1
         # Convert "null" sentinels back to None
         for key in ['player1_id', 'player2_id']:
             if key in data and data[key] == "null":
@@ -1034,12 +1047,17 @@ def moderator_control_status():
             "message": "No active session"
         })
     
+    try:
+        round_number = int(game_state.get('round_number', 1))
+    except (TypeError, ValueError):
+        round_number = 1
+
     return jsonify({
         "status": "ok",
         "game_id": moderator_game_id,
         "state": game_state['state'],
-        "round_number": game_state.get('round_number', 1),
-        "can_swap_roles": game_state.get('state') == 'IN_PROGRESS' and game_state.get('round_number', 1) == 1,
+        "round_number": round_number,
+        "can_swap_roles": game_state.get('state') == 'IN_PROGRESS' and round_number == 1,
         "waiting_count": len(game_state.get('waiting_participants', [])),
         "player1_id": game_state.get('player1_id'),
         "player2_id": game_state.get('player2_id')
@@ -1210,7 +1228,10 @@ def moderator_swap_roles():
             "message": f"Cannot swap roles in state: {game_state.get('state')}"
         }), 400
 
-    current_round = game_state.get('round_number', 1)
+    try:
+        current_round = int(game_state.get('round_number', 1))
+    except (TypeError, ValueError):
+        current_round = 1
     if current_round != 1:
         return jsonify({
             "status": "error",
@@ -1235,8 +1256,13 @@ def moderator_swap_roles():
     set_participant_role(moderator_game_id, old_player1_id, 'player2')
     set_participant_role(moderator_game_id, old_player2_id, 'player1')
 
-    # Draw and persist a new secret card for round 2
-    new_chosen_card = random.choice(CARDS)["id"]
+    # Draw and persist a new secret card for round 2 (different from previous when possible)
+    previous_chosen_card = get_chosen_card(moderator_game_id)
+    available_round2_cards = [card["id"] for card in CARDS if card["id"] != previous_chosen_card]
+    if available_round2_cards:
+        new_chosen_card = random.choice(available_round2_cards)
+    else:
+        new_chosen_card = random.choice(CARDS)["id"]
     set_chosen_card(moderator_game_id, new_chosen_card)
 
     record_event(

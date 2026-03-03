@@ -491,4 +491,116 @@ class TestGameFlow:
         game_state = get_game_state(game_id)
         assert game_state['state'] == 'OPEN'
 
+    def test_swap_roles_round2_keeps_same_game_and_flips_bindings(self, client, reset_globals):
+        """Swap should keep same game_id, flip player IDs/role bindings, and move to round 2."""
+        from app import get_game_state, get_participant_binding, get_chosen_card
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+
+        res1 = client.post("/join/enter", json={"token": tokens[0]})
+        p1_id = json.loads(res1.data)["participant_id"]
+        res2 = client.post("/join/enter", json={"token": tokens[1]})
+        p2_id = json.loads(res2.data)["participant_id"]
+
+        client.post("/moderator/control/start", json={})
+        round1_card = get_chosen_card(game_id)
+
+        res_swap = client.post("/moderator/control/swap_roles", json={})
+        assert res_swap.status_code == 200
+        swap_data = json.loads(res_swap.data)
+        assert swap_data.get("status") == "ok"
+        assert swap_data.get("game_id") == game_id
+        assert swap_data.get("round_number") == 2
+
+        game_state = get_game_state(game_id)
+        assert game_state['state'] == 'IN_PROGRESS'
+        assert game_state['round_number'] == 2
+        assert game_state['player1_id'] == p2_id
+        assert game_state['player2_id'] == p1_id
+
+        # Role bindings are flipped in DB
+        assert get_participant_binding(game_id, p1_id) == 'player2'
+        assert get_participant_binding(game_id, p2_id) == 'player1'
+
+        # Secret card was re-drawn for round 2
+        round2_card = get_chosen_card(game_id)
+        assert round2_card in range(1, 13)
+        assert round2_card != round1_card
+
+    def test_swap_roles_preserves_round1_eliminations_and_starts_fresh_round2(self, client, reset_globals):
+        """Round 1 elimination records should be preserved while round 2 view starts empty."""
+        from app import get_eliminated_cards
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+
+        # Round 1: eliminate card 5
+        res_elim_r1 = client.post("/eliminate_card", json={"game_id": game_id, "card_id": 5})
+        assert res_elim_r1.status_code == 200
+        assert 5 in get_eliminated_cards(game_id, round_number=1)
+
+        # Swap to round 2
+        res_swap = client.post("/moderator/control/swap_roles", json={})
+        assert res_swap.status_code == 200
+
+        # Current round (round 2) starts with no eliminations
+        round2_eliminated = get_eliminated_cards(game_id)
+        assert round2_eliminated == set()
+
+        # Round 1 history remains available
+        round1_eliminated = get_eliminated_cards(game_id, round_number=1)
+        assert 5 in round1_eliminated
+
+        # Round 2 can eliminate the same card independently
+        res_elim_r2 = client.post("/eliminate_card", json={"game_id": game_id, "card_id": 5})
+        assert res_elim_r2.status_code == 200
+        assert 5 in get_eliminated_cards(game_id, round_number=2)
+        assert 5 in get_eliminated_cards(game_id, round_number=1)
+
+    def test_swap_roles_guardrails(self, client, reset_globals):
+        """Swap is disallowed before IN_PROGRESS and disallowed a second time."""
+        from app import get_game_state
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+
+        # Not started yet (READY) -> cannot swap
+        res_swap_ready = client.post("/moderator/control/swap_roles", json={})
+        assert res_swap_ready.status_code == 400
+        data_ready = json.loads(res_swap_ready.data)
+        assert data_ready.get("status") == "error"
+
+        client.post("/moderator/control/start", json={})
+
+        # First swap succeeds
+        res_swap_first = client.post("/moderator/control/swap_roles", json={})
+        assert res_swap_first.status_code == 200
+
+        # Second swap is blocked
+        res_swap_second = client.post("/moderator/control/swap_roles", json={})
+        assert res_swap_second.status_code == 400
+        data_second = json.loads(res_swap_second.data)
+        assert data_second.get("status") == "error"
+
+        game_state = get_game_state(game_id)
+        assert game_state.get('round_number') == 2
+
 
