@@ -305,7 +305,9 @@ GAME_STATES = {
     #   'state': 'CLOSED'|'OPEN'|'READY'|'IN_PROGRESS'|'ENDED',
     #   'waiting_participants': [(participant_id, timestamp), ...],
     #   'player1_id': str,
-    #   'player2_id': str
+    #   'player2_id': str,
+    #   'round_number': int,          # starts at 1
+    #   'round_phase': str            # ACTIVE|COMPLETE
     # }
 }
 CURRENT_SESSION_GAME_ID = None  # The active game session
@@ -1051,7 +1053,9 @@ def moderator_open_entry():
             'state': 'OPEN',
             'waiting_participants': [],
             'player1_id': None,
-            'player2_id': None
+            'player2_id': None,
+            'round_number': 1,
+            'round_phase': 'ACTIVE'
         })
         
         # Update the global for participant joins
@@ -1115,6 +1119,8 @@ def moderator_start_game():
         return jsonify({"status": "error", "message": "Missing player IDs"}), 400
     
     game_state['state'] = 'IN_PROGRESS'
+    game_state.setdefault('round_number', 1)
+    game_state.setdefault('round_phase', 'ACTIVE')
     set_game_state(moderator_game_id, game_state)
     
     # Update global for participant joins
