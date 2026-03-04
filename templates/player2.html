@@ -16,7 +16,7 @@
     </header>
 
     <main style="width: 100%; max-width: 900px; text-align: center;">
-        <h2>Player 2 – Guesser</h2>
+        <h2>Speler 2 – Rader</h2>
         <div id="game-info" style="margin-bottom: 1em; color: #555;"></div>
 
         <!-- Card grid -->
@@ -34,8 +34,8 @@
             <div id="transcript"></div>
 
             <div class="chat-bar">
-                <input type="text" id="chat-input" placeholder="Send a message to all participants">
-                <button id="send-btn">Send</button>
+                <input type="text" id="chat-input" placeholder="Stuur een bericht naar alle deelnemers">
+                <button id="send-btn">Versturen</button>
             </div>
         </div>
 
@@ -141,10 +141,10 @@
                         
                         if (data.state === 'CLOSED' && data.message) {
                             // Session reset - show "no longer active" message
-                            endNotification.innerHTML = '🔒 This game session is no longer active.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Deze spelsessie is beëindigd.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
                         } else {
                             // Game ended normally
-                            endNotification.innerHTML = '✅ Game has ended. Thank you for playing!<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Het spel is afgelopen. Bedankt voor het spelen! Je kunt dit venster nu sluiten.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
                         }
                         
                         const main = document.querySelector('main');
@@ -216,7 +216,7 @@
 
         socket.on('roles_swapped', data => {
             if (!data || data.game_id !== gameId) return;
-            appendMessage('<em>Roles swapped. Redirecting to your Round 2 view...</em>', 'color:gray;');
+            appendMessage('<em>Rollen gewisseld. Je wordt doorgestuurd naar ronde 2</em>', 'color:gray;');
             setTimeout(redirectToCurrentRole, 300);
         });
 

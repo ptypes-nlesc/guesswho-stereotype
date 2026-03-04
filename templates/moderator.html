@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Moderator View – GuessWho Stereotype</title>
+    <title>Moderator View – Xposed</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
@@ -23,20 +23,20 @@
 
         <div class="player-panels">
             <div class="player-box">
-                <h3>Player 1 (Secret Card)</h3>
+                <h3>Speler 1 (Geheime Kaart)</h3>
                 {% if secret_card is defined %}
                 <div class="secret-card">
                     <img src="{{ url_for('static', filename='cards/' + secret_card.id|string + '.png') }}" alt="{{ secret_card.name }}"
                         class="secret-card-image">
-                    <p><strong>Secret Card:</strong> {{ secret_card.name }}</p>
+                    <p><strong>Geheime Kaart:</strong> {{ secret_card.name }}</p>
                 </div>
                 {% else %}
-                <p style="color: #999;">Secret card not available.</p>
+                <p style="color: #999;">Geheime kaart niet beschikbaar.</p>
                 {% endif %}
             </div>
 
             <div class="player-box">
-                <h3>Player 2 (Guesser Grid)</h3>
+                <h3>Speler 2 (Rader)</h3>
                 <div id="card-grid">
                     {% for card_item in cards|default([]) %}
                     <div class="card{% if card_item.id in (eliminated|default([])) %} eliminated{% endif %}" id="card{{ card_item.id }}">
@@ -52,8 +52,8 @@
             <div id="transcript"></div>
 
             <div class="chat-bar">
-                <input type="text" id="chat-input" placeholder="Send a message to all participants">
-                <button id="send-chat">Send</button>
+                <input type="text" id="chat-input" placeholder="Stuur een bericht naar alle deelnemers">
+                <button id="send-chat">Versturen</button>
             </div>
         </div>
 
@@ -64,19 +64,37 @@
         </div>
 
         <footer>
-            <p>Moderator controls and monitoring panel – GuessWho Stereotype</p>
-            <p><a href="{{ url_for('dashboard') }}" class="link-btn">⬅ Back to Dashboard</a></p>
+            <p>Moderator controls and monitoring panel – Xposed</p>
+            <p><a href="{{ url_for('dashboard') }}" class="link-btn">⬅ Terug naar Dashboard</a></p>
         </footer>
     </main>
 
     <script>
         // --- Setup -----------------------------------------------------
         const gameId = new URLSearchParams(window.location.search).get('game_id') || '{{ game_id }}';
+        const participantId = new URLSearchParams(window.location.search).get('participant_id');
         document.getElementById("game-id-display").textContent = gameId;
 
         // --- Socket setup ---------------------------------------------
         const socket = io();
-        socket.emit("join", {game_id: gameId, role: "moderator", participant_id: window.participantId});
+        console.log("🔗 Socket.IO connection attempt");
+        
+        socket.on("connect", () => {
+            console.log("✅ Socket.IO connected, emitting join...", {game_id: gameId, role: "moderator", participant_id: participantId});
+            socket.emit("join", {game_id: gameId, role: "moderator", participant_id: participantId});
+        });
+        
+        socket.on("connect_error", (error) => {
+            console.error("❌ Socket.IO connection error:", error);
+        });
+        
+        socket.on("error", (error) => {
+            console.error("❌ Socket.IO error:", error);
+        });
+        
+        socket.on("disconnect", (reason) => {
+            console.warn("⚠️ Socket.IO disconnected:", reason);
+        });
 
         const transcriptDiv = document.getElementById("transcript");
         const chatInput = document.getElementById("chat-input");
@@ -135,10 +153,11 @@
                         
                         if (data.state === 'CLOSED' && data.message) {
                             // Session reset - show "no longer active" message
-                            endNotification.innerHTML = '🔒 This game session is no longer active.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Deze spelsessie is verlopen.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
                         } else {
                             // Game ended normally
-                            endNotification.innerHTML = '✅ Game has ended.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Het spel is afgelopen. Je kunt dit venster nu sluiten.
+                            <br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
                         }
                         
                         const main = document.querySelector('main');
@@ -183,7 +202,8 @@
         const sendChat = () => {
             const text = chatInput.value.trim();
             if (!text) return;
-            socket.emit("chat", {game_id: gameId, role: "moderator", text, participant_id: window.participantId});
+            console.log("Sending chat:", {game_id: gameId, role: "moderator", text, participant_id: participantId});
+            socket.emit("chat", {game_id: gameId, role: "moderator", text, participant_id: participantId});
             chatInput.value = "";
         };
 
@@ -196,8 +216,12 @@
         });
 
         // --- Socket events --------------------------------------------
-        socket.on("chat", data => appendMessage(`<b>${data.role}:</b> ${data.text}`));
+        socket.on("chat", data => {
+            console.log("📩 Received chat:", data);
+            appendMessage(`<b>${data.role}:</b> ${data.text}`);
+        });
         socket.on("system", data => {
+            console.log("📩 Received system event:", data);
             if (data.action === "join") {
                 const key = `${data.role}`;
                 if (seenJoins.has(key)) return;
