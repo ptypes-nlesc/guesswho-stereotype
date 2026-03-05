@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Player 2 – Guesser</title>
+    <title>Speler 2 – Rader</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
@@ -141,10 +141,10 @@
                         
                         if (data.state === 'CLOSED' && data.message) {
                             // Session reset - show "no longer active" message
-                            endNotification.innerHTML = 'Deze spelsessie is beëindigd.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Deze spelsessie is beëindigd.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">Je kunt dit venster nu sluiten.</small>';
                         } else {
                             // Game ended normally
-                            endNotification.innerHTML = 'Het spel is afgelopen. Bedankt voor het spelen! Je kunt dit venster nu sluiten.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Het spel is afgelopen. Bedankt voor het spelen!<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">Je kunt dit venster nu sluiten.</small>';
                         }
                         
                         const main = document.querySelector('main');
@@ -254,7 +254,6 @@
             const cardEl = document.getElementById(`card${data.card}`);
             if (cardEl) cardEl.classList.add('eliminated');
             
-            // Check if we've reached end of game (only 1 card left)
             setTimeout(checkEndOfGame, 100);
         });
 

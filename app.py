@@ -871,7 +871,7 @@ def join_page():
     token = request.args.get("token")
     
     if not token:
-        return render_template("waiting.html", error="No token provided. You need a valid invitation link to join.")
+        return render_template("waiting.html", error="Geen token gevonden. Je hebt een geldige uitnodigingslink nodig om deel te nemen.")
     
     # Validate token
     with get_db_conn() as conn:
@@ -949,7 +949,7 @@ def join_status():
     elif game_state['state'] == 'IN_PROGRESS':
         return jsonify({"status": "closed", "message": "Game in progress"})
     elif game_state['state'] == 'ENDED':
-        return jsonify({"status": "closed", "message": "Game has ended"})
+        return jsonify({"status": "closed", "message": ""})
     
     return jsonify({"status": "closed", "message": "Unknown state"})
 

@@ -21,8 +21,7 @@
         <div class="secret-card">
             <img src="{{ url_for('static', filename='cards/' + card.id|string + '.png') }}" alt="{{ card.name }}"
                 class="secret-card-image">
-            <p><strong>Jouw geheime kaart:</strong> {{ card.name }}</p>
-        </div>
+                  </div>
 
         <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
             <h3 class="chat-title" style="align-self: flex-start;">Chat</h3>
@@ -107,10 +106,10 @@
                         endNotification.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff3cd; border: 2px solid #ffc107; padding: 30px; border-radius: 8px; text-align: center; font-size: 1.2em; font-weight: bold; color: #856404; z-index: 9999; width: 90%; max-width: 500px;';
                         
                         if (data.state === 'CLOSED' && data.message) {
-                            endNotification.innerHTML = 'Deze spelsessie is beëindigd.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Deze spelsessie is beëindigd.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">Je kunt dit venster nu sluiten.</small>';
                         } else {
                             // Game ended normally
-                            endNotification.innerHTML = 'Het spel is afgelopen. Bedankt voor het spelen! Je kunt dit venster nu sluiten.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Het spel is afgelopen. Bedankt voor het spelen! <br><small style="font-size: 0.8em; display: block; margin-top: 10px;">Je kunt dit venster nu sluiten.</small>';
                         }
                         
                         const main = document.querySelector('main');
