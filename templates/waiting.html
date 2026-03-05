@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Join Game – GuessWho Stereotype</title>
+    <title>Wetenschappelijk spel – Xposed</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
         .waiting-container {
@@ -76,8 +76,7 @@
     </header>
 
     <div class="waiting-container">
-        <h1>🎮 GuessWho Stereotype</h1>
-        <p>Welcome to the game session!</p>
+        <h3>Welkom bij de spelsessie! Je bent in de wachtruimte.</h3>
 
         {% if error %}
         <div class="status-message status-closed">
@@ -89,7 +88,7 @@
             <p>Checking status...</p>
         </div>
 
-        <button id="join-btn" class="join-btn" style="display: none;">Join Game</button>
+        <button id="join-btn" class="join-btn" style="display: none;">Start het spel</button>
         {% endif %}
     </div>
 
@@ -118,7 +117,7 @@
                     clearInterval(checkInterval);
                     display.innerHTML = `
                         <div class="status-message status-open">
-                            🎮 Game starting! Redirecting to your role...
+                            🎮 Het spel begint! Je wordt doorgestuurd naar je rol.
                         </div>
                         <div class="spinner"></div>
                     `;
@@ -128,8 +127,8 @@
                 } else if (data.status === 'open') {
                     display.innerHTML = `
                         <div class="status-message status-open">
-                            ✅ Entry is open!<br>
-                            ${data.waiting_count}/2 participants waiting
+                            Je kunt nu deelnemen<br>
+                            ${data.waiting_count}/2 spelers wachten
                         </div>
                     `;
                     if (!hasJoined) {
@@ -139,7 +138,7 @@
                 } else if (data.status === 'ready') {
                     display.innerHTML = `
                         <div class="status-message status-ready">
-                            ⏳ Waiting for moderator to start the game...
+                            ⏳ Even wachten. De moderator start straks het spel.
                         </div>
                         <div class="spinner"></div>
                     `;
@@ -147,9 +146,9 @@
                 } else if (data.status === 'closed') {
                     display.innerHTML = `
                         <div class="status-message status-closed">
-                            🔒 ${data.message}
+                        Even wachten. De moderator start straks het spel.
                         </div>
-                        <p>Please wait for the moderator to open entry.</p>
+                        
                         <div class="spinner"></div>
                     `;
                     joinBtn.style.display = 'none';
@@ -174,7 +173,7 @@
         document.getElementById('join-btn').onclick = async () => {
             const joinBtn = document.getElementById('join-btn');
             joinBtn.disabled = true;
-            joinBtn.textContent = 'Joining...';
+            joinBtn.textContent = 'Meedoen';
 
             try {
                 const res = await fetch('/join/enter', { 
@@ -193,11 +192,11 @@
                     
                     document.getElementById('status-display').innerHTML = `
                         <div class="status-message status-waiting">
-                            ✅ You're in the waiting room!<br>
-                            ${data.waiting_count}/2 participants
+                            ✅ Je bent in de wachtruimte!<br>
+                            ${data.waiting_count}/2 deelnemers
                         </div>
                         <div class="spinner"></div>
-                        <p>Waiting for ${2 - data.waiting_count} more participant(s)...</p>
+                        <p>Nog ${2 - data.waiting_count} deelmenemer(s) nodig </p>
                     `;
                     joinBtn.style.display = 'none';
                 } else if (data.status === 'in_game') {
@@ -206,7 +205,7 @@
                     localStorage.setItem('participant_id', participantId);
                     document.getElementById('status-display').innerHTML = `
                         <div class="status-message status-open">
-                            🎮 Redirecting to your game...
+                            🎮 Je wordt doorgestuurd naar het spel...
                         </div>
                         <div class="spinner"></div>
                     `;
@@ -216,13 +215,13 @@
                 } else {
                     alert(data.message || 'Failed to join');
                     joinBtn.disabled = false;
-                    joinBtn.textContent = 'Join Game';
+                    joinBtn.textContent = 'Meedoen';
                 }
             } catch (err) {
                 console.error('Join failed:', err);
                 alert('Failed to join. Please try again.');
                 joinBtn.disabled = false;
-                joinBtn.textContent = 'Join Game';
+                joinBtn.textContent = 'Meedoen';
             }
         };
 

@@ -2,7 +2,7 @@ function createEndOfGameHighlighter(options) {
     const {
         appendMessage,
         cardSelector = '.card',
-        messageHtml = '<strong style="color: #d32f2f; font-size: 1.1em;">🏁 END OF GAME 🏁</strong>',
+        messageHtml = '<strong style="color: #d32f2f; font-size: 1.1em;"> Einde van de ronde </strong>',
         messageStyle = 'text-align: center; margin: 10px 0; padding: 10px; background: #ffebee; border-radius: 4px;'
     } = options;
 
