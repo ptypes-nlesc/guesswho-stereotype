@@ -33,9 +33,10 @@ def test_db():
     """Setup test database - shared by all fixtures."""
     import app as app_module
     original_mysql_config = dict(app_module.MYSQL_CONFIG)
+    test_database = 'xposed_db_test'
     
     # Use test database name
-    app_module.MYSQL_CONFIG['database'] = 'exposeddb_test'
+    app_module.MYSQL_CONFIG['database'] = test_database
     
     admin_user = os.getenv('MYSQL_ROOT_USER', 'root')
     admin_password = os.getenv('MYSQL_ROOT_PASSWORD')
@@ -72,13 +73,13 @@ def test_db():
             ) from exc
 
     cursor = admin_conn.cursor()
-    cursor.execute("DROP DATABASE IF EXISTS exposeddb_test")
-    cursor.execute("CREATE DATABASE exposeddb_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    cursor.execute(f"DROP DATABASE IF EXISTS {test_database}")
+    cursor.execute(f"CREATE DATABASE {test_database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
 
     if admin_conn_user != original_mysql_config['user']:
         # Grant permissions to app user on test database
         cursor.execute(
-            "GRANT ALL PRIVILEGES ON exposeddb_test.* TO %s@'%%'",
+            f"GRANT ALL PRIVILEGES ON {test_database}.* TO %s@'%%'",
             (original_mysql_config['user'],)
         )
         cursor.execute("FLUSH PRIVILEGES")
@@ -114,7 +115,7 @@ def test_db():
         )
 
     cursor = admin_conn.cursor()
-    cursor.execute("DROP DATABASE IF EXISTS exposeddb_test")
+    cursor.execute(f"DROP DATABASE IF EXISTS {test_database}")
     admin_conn.commit()
     cursor.close()
     admin_conn.close()
@@ -184,15 +185,24 @@ def socketio_client(test_db):
 def create_test_game():
     """Helper to create a game record in the database for testing."""
     import app as app_module
-    import pymysql
     
     def _create_game(game_id, chosen_card=None):
-        """Insert a game record into the games table."""
+        """Insert a game record into games and a round 1 card into rounds."""
+        if chosen_card is None:
+            chosen_card = 1
+
         with app_module.get_db_conn() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO games (id, chosen_card, created_at) VALUES (%s, %s, NOW())",
-                (game_id, chosen_card)
+                "INSERT INTO games (id, created_at) VALUES (%s, NOW())",
+                (game_id,)
+            )
+            cursor.execute(
+                """
+                INSERT INTO rounds (game_id, round_number, chosen_card_id, started_at)
+                VALUES (%s, %s, %s, NOW())
+                """,
+                (game_id, 1, chosen_card)
             )
         return game_id
     

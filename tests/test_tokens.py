@@ -2,6 +2,7 @@ import pytest
 import json
 import os
 import datetime
+import uuid
 
 # Test with the actual MODERATOR_PASSWORD from .env
 MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD", "test-password")
@@ -24,17 +25,18 @@ class TestTokenManagement:
         
         # Create an expired token directly in DB
         expired_time = (datetime.datetime.now() - datetime.timedelta(hours=1)).isoformat()
+        expired_token = f"expired-token-{uuid.uuid4().hex}"
         
         with get_db_conn() as conn:
             c = conn.cursor()
             c.execute(
                 "INSERT INTO access_tokens (token, created_at, expires_at) VALUES (%s, %s, %s)",
-                ("expired-token", datetime.datetime.now().isoformat(), expired_time)
+                (expired_token, datetime.datetime.now().isoformat(), expired_time)
             )
             # Context manager auto-commits
         
         # Try to join with expired token
-        res = client.post("/join/enter", json={"token": "expired-token"})
+        res = client.post("/join/enter", json={"token": expired_token})
         assert res.status_code == 400
         data = json.loads(res.data)
         assert data.get("status") == "error"
