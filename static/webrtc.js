@@ -19,6 +19,7 @@
     }
     window.participantId = participantId;
     console.log(`[WebRTC] Participant ID (${role}): ${participantId}`);
+    const includeParticipantId = role !== "moderator";
 
     // Generate or reuse a stable client ID for this browser
     const storageKey = `gw_client_id_${role || "unknown"}`;
@@ -95,7 +96,7 @@
             from_id: clientId,
             to_id: peerId,
             role,
-            participant_id: participantId,
+            ...(includeParticipantId ? { participant_id: participantId } : {}),
             candidate: event.candidate
           });
         }
@@ -190,7 +191,7 @@
             from_id: clientId,
             to_id: peerId,
             role,
-            participant_id: participantId,
+            ...(includeParticipantId ? { participant_id: participantId } : {}),
             description: pc.localDescription
           });
         }
@@ -241,7 +242,7 @@
           game_id: gameId,
           role,
           client_id: clientId,
-          participant_id: participantId
+          ...(includeParticipantId ? { participant_id: participantId } : {})
         });
 
         setButton(true);
@@ -303,7 +304,7 @@
               from_id: clientId,
               to_id: peer.client_id,
               role,
-              participant_id: participantId,
+              ...(includeParticipantId ? { participant_id: participantId } : {}),
               description: pc.localDescription
             });
           }
@@ -329,7 +330,7 @@
           from_id: clientId,
           to_id: newPeerId,
           role,
-          participant_id: participantId,
+          ...(includeParticipantId ? { participant_id: participantId } : {}),
           description: pc.localDescription
         });
       }
