@@ -330,86 +330,141 @@ def init_db():
     """Ensure all tables exist before running the app."""
     with get_db_conn() as conn:
         c = conn.cursor()
+        
+        # Cards table
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cards (
+                id INT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                image_path VARCHAR(255),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        
+        # Participants table
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS participants (
+                id VARCHAR(255) PRIMARY KEY,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        
+        # Games table
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS games (
                 id VARCHAR(255) PRIMARY KEY,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                chosen_card INT
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
+        
+        # Rounds table
         c.execute(
             """
-            CREATE TABLE IF NOT EXISTS events (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS rounds (
                 game_id VARCHAR(255) NOT NULL,
-                role VARCHAR(50),
-                action VARCHAR(50),
-                text LONGTEXT,
-                card INT,
-                participant_id VARCHAR(255),
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                round_number INT NOT NULL CHECK (round_number > 0),
+                chosen_card_id INT,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_at DATETIME,
+                PRIMARY KEY (game_id, round_number),
                 FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
-                INDEX idx_game_id (game_id),
-                INDEX idx_timestamp (timestamp)
+                FOREIGN KEY (chosen_card_id) REFERENCES cards(id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
-        c.execute(
-            """
-            CREATE TABLE IF NOT EXISTS eliminated_cards (
-                game_id VARCHAR(255) NOT NULL,
-                card_id INT NOT NULL,
-                round_number INT DEFAULT 1,
-                eliminated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (game_id, card_id, round_number),
-                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """
-        )
-        c.execute(
-            """
-            CREATE TABLE IF NOT EXISTS audio_events (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                game_id VARCHAR(255) NOT NULL,
-                role VARCHAR(50),
-                start_time DATETIME,
-                end_time DATETIME,
-                duration_seconds FLOAT,
-                audio_path TEXT,
-                transcript LONGTEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
-                INDEX idx_game_id (game_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """
-        )
+        
+        # Participant Bindings
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS participant_bindings (
                 game_id VARCHAR(255) NOT NULL,
                 participant_id VARCHAR(255) NOT NULL,
-                role VARCHAR(50),
-                round_number INT DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                role VARCHAR(50) NOT NULL,
+                round_number INT NOT NULL DEFAULT 1,
+                bound_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (game_id, participant_id, round_number),
-                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+                FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
+        
+        # Events table
         c.execute(
             """
-            CREATE TABLE IF NOT EXISTS game_round_cards (
+            CREATE TABLE IF NOT EXISTS events (
+                id INT AUTO_INCREMENT PRIMARY KEY,
                 game_id VARCHAR(255) NOT NULL,
-                round_number INT NOT NULL,
-                chosen_card INT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (game_id, round_number),
-                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+                participant_id VARCHAR(255),
+                action VARCHAR(50) NOT NULL,
+                text TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+                FOREIGN KEY (participant_id) REFERENCES participants(id),
+                INDEX idx_game_id (game_id),
+                INDEX idx_participant_id (participant_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
+        
+        # Eliminated Cards (per round)
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS eliminated_cards (
+                game_id VARCHAR(255) NOT NULL,
+                round_number INT NOT NULL,
+                card_id INT NOT NULL,
+                eliminated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (game_id, round_number, card_id),
+                FOREIGN KEY (game_id, round_number) REFERENCES rounds(game_id, round_number) ON DELETE CASCADE,
+                FOREIGN KEY (card_id) REFERENCES cards(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+
+        # Audio Events
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audio_events (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                game_id VARCHAR(255) NOT NULL,
+                participant_id VARCHAR(255),
+                start_time DATETIME NOT NULL,
+                end_time DATETIME,
+                audio_path VARCHAR(255),
+                transcript TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+                FOREIGN KEY (participant_id) REFERENCES participants(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        
+        # Chat Messages
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                game_id VARCHAR(255) NOT NULL,
+                participant_id VARCHAR(255),
+                role VARCHAR(50) NOT NULL,
+                text TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+                FOREIGN KEY (participant_id) REFERENCES participants(id),
+                INDEX idx_game_id (game_id),
+                INDEX idx_timestamp (timestamp)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        
+        # Access Tokens
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS access_tokens (
@@ -417,47 +472,76 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expires_at DATETIME,
                 used_at DATETIME,
-                participant_id VARCHAR(255),
+                participant_id VARCHAR(255) UNIQUE,
+                FOREIGN KEY (participant_id) REFERENCES participants(id),
                 INDEX idx_expires_at (expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
-       
+        
+        # Populate cards table with default card data
+        for card in CARDS:
+            c.execute(
+                """
+                INSERT IGNORE INTO cards (id, name, image_path)
+                VALUES (%s, %s, %s)
+                """,
+                (card["id"], card["name"], f"cards/{card['id']}.png")
+            )
+        conn.commit()
+
 
 def log_event(entry):
-    """Insert structured event into DB."""
+    """Insert structured event into DB.
+    
+    Routes events based on action:
+    - 'chat': inserted into chat table
+    - 'eliminate': inserted into eliminated_cards table only
+    - 'card_draw': not persisted (stored in rounds table)
+    - others: inserted into events table (system events)
+    """
     game_id = entry.get("game_id", "default")
-    role = entry.get("role", "unknown")
     action = entry.get("action", "")
     text = entry.get("text") or ""
-    card = entry.get("card")
+    card = entry.get("card")  # Card ID
+    participant_id = entry.get("participant_id")
+    role = entry.get("role", "")
+    timestamp = entry.get("timestamp") or datetime.datetime.now().isoformat()
 
     with get_db_conn() as conn:
         c = conn.cursor()
-        c.execute(
-            "INSERT INTO events (game_id, role, action, text, card, participant_id, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (
-                game_id,
-                role,
-                action,
-                text,
-                card,
-                entry.get("participant_id"),
-                entry.get("timestamp") or datetime.datetime.now().isoformat(),
-            ),
-        )
-
-        # Track eliminated cards with round_number
-        if action == "eliminate" and card is not None:
-            # Get current round_number from game state
-            game_state = get_game_state(game_id)
-            current_round = game_state.get('round_number', 1) if game_state else 1
+        if participant_id:
             c.execute(
-                """
-                REPLACE INTO eliminated_cards (game_id, card_id, round_number, eliminated_at)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (game_id, card, current_round, datetime.datetime.now().isoformat()),
+                "INSERT INTO participants (id, created_at) VALUES (%s, %s) ON DUPLICATE KEY UPDATE id=id",
+                (participant_id, datetime.datetime.now().isoformat()),
+            )
+        
+        # Route based on action
+        if action == "chat":
+            # Chat messages go to chat table
+            c.execute(
+                "INSERT INTO chat (game_id, participant_id, role, text, timestamp) VALUES (%s, %s, %s, %s, %s)",
+                (game_id, participant_id, role, text, timestamp),
+            )
+        elif action == "eliminate":
+            # Eliminate events go to eliminated_cards table only, not events table
+            if card is not None:
+                game_state = get_game_state(game_id)
+                current_round = game_state.get('round_number', 1) if game_state else 1
+                c.execute(
+                    """
+                    REPLACE INTO eliminated_cards (game_id, round_number, card_id, eliminated_at)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (game_id, current_round, card, timestamp),
+                )
+        elif action == "card_draw":
+            pass
+        else:
+            # System events (join, entry_opened, game_started, etc.) go to events table
+            c.execute(
+                "INSERT INTO events (game_id, participant_id, action, text, timestamp) VALUES (%s, %s, %s, %s, %s)",
+                (game_id, participant_id, action, text, timestamp),
             )
         # Context manager auto-commits
 
@@ -483,16 +567,11 @@ def get_chosen_card(game_id):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT chosen_card FROM game_round_cards WHERE game_id = %s AND round_number = %s",
+            "SELECT chosen_card_id FROM rounds WHERE game_id = %s AND round_number = %s",
             (game_id, current_round),
         )
         row = c.fetchone()
-        if row:
-            return row['chosen_card']
-
-        c.execute("SELECT chosen_card FROM games WHERE id = %s", (game_id,))
-        row = c.fetchone()
-        return row['chosen_card'] if row else None
+        return row['chosen_card_id'] if row else None
 
 
 def set_chosen_card(game_id, card_id):
@@ -503,31 +582,111 @@ def set_chosen_card(game_id, card_id):
         c = conn.cursor()
         c.execute(
             """
-            INSERT INTO game_round_cards (game_id, round_number, chosen_card, created_at)
+            INSERT INTO rounds (game_id, round_number, chosen_card_id, started_at)
             VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE chosen_card = VALUES(chosen_card)
+            ON DUPLICATE KEY UPDATE chosen_card_id = VALUES(chosen_card_id)
             """,
             (game_id, current_round, card_id, datetime.datetime.now().isoformat()),
         )
-        if current_round == 1:
-            c.execute("UPDATE games SET chosen_card = %s WHERE id = %s", (card_id, game_id))
+
+
+def close_round(game_id, round_number=None):
+    """Set ended_at for a round if it is not already set."""
+    if round_number is None:
+        game_state = get_game_state(game_id)
+        round_number = game_state.get('round_number', 1) if game_state else 1
+
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            """
+            UPDATE rounds
+            SET ended_at = %s
+            WHERE game_id = %s
+              AND round_number = %s
+              AND ended_at IS NULL
+            """,
+            (datetime.datetime.now().isoformat(), game_id, round_number),
+        )
+
+
+def get_chat_history(game_id, limit=200):
+    """Get chat messages for a game from the chat table."""
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT id, game_id, participant_id, role, text, timestamp FROM chat WHERE game_id = %s ORDER BY id DESC LIMIT %s",
+            (game_id, limit),
+        )
+        rows = [dict(r) for r in reversed(c.fetchall())]
+        return rows
 
 
 def get_transcript(game_id, limit=200):
+    """Get system events from the events table (join, entry_opened, game_started, etc.)."""
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
             "SELECT * FROM events WHERE game_id = %s ORDER BY id DESC LIMIT %s",
             (game_id, limit),
         )
-        return [dict(r) for r in reversed(c.fetchall())]
+        rows = [dict(r) for r in reversed(c.fetchall())]
+        for row in rows:
+            participant_id = row.get("participant_id")
+            if row.get("action") == "join" and row.get("text"):
+                row["role"] = row.get("text")
+            elif participant_id:
+                row["role"] = get_participant_binding(game_id, participant_id) or get_participant_role(game_id, participant_id) or "unknown"
+            else:
+                row["role"] = "system"
+        return rows
+
+
+def get_full_transcript(game_id, limit=200):
+    """Get full transcript including both system events and chat messages, ordered by timestamp."""
+    system_events = get_transcript(game_id, limit)
+    chat_messages = get_chat_history(game_id, limit)
+    
+    # Combine and sort by timestamp
+    combined = []
+    for event in system_events:
+        combined.append({
+            'type': 'event',
+            'timestamp': event.get('timestamp'),
+            'action': event.get('action'),
+            'role': event.get('role'),
+            'text': event.get('text'),
+            'participant_id': event.get('participant_id'),
+            **event
+        })
+    
+    for msg in chat_messages:
+        combined.append({
+            'type': 'chat',
+            'timestamp': msg.get('timestamp'),
+            'action': 'chat',
+            'role': msg.get('role'),
+            'text': msg.get('text'),
+            'participant_id': msg.get('participant_id'),
+            **msg
+        })
+    
+    # Sort by timestamp
+    combined.sort(key=lambda x: x.get('timestamp', ''))
+    return combined[-limit:] if limit else combined
 
 
 def get_joined_roles(game_id):
+    """Get roles that have joined for a game."""
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT DISTINCT role FROM events WHERE game_id = %s AND action = %s",
+            """
+            SELECT DISTINCT COALESCE(pb.role, e.text, 'system') AS role
+            FROM events e
+            LEFT JOIN participant_bindings pb ON e.participant_id = pb.participant_id AND e.game_id = pb.game_id
+            WHERE e.game_id = %s AND e.action = %s
+            """,
             (game_id, "join"),
         )
         return {row['role'] for row in c.fetchall()}
@@ -594,7 +753,7 @@ def get_participant_binding(game_id, participant_id):
             SELECT role
             FROM participant_bindings
             WHERE game_id = %s AND participant_id = %s
-            ORDER BY round_number DESC, created_at DESC
+            ORDER BY round_number DESC, bound_at DESC
             LIMIT 1
             """,
             (game_id, participant_id),
@@ -610,13 +769,19 @@ def set_participant_binding(game_id, participant_id, role, round_number=None):
         round_number = game_state.get('round_number', 1) if game_state else 1
     with get_db_conn() as conn:
         c = conn.cursor()
+        # Ensure participant exists in participants table
+        c.execute(
+            "INSERT INTO participants (id, created_at) VALUES (%s, %s) ON DUPLICATE KEY UPDATE id=id",
+            (participant_id, datetime.datetime.now().isoformat()),
+        )
+        # Insert or update binding for specific round
         c.execute(
             """
-            INSERT INTO participant_bindings (game_id, participant_id, role, round_number, created_at)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO participant_bindings (game_id, participant_id, role, round_number)
+            VALUES (%s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE role = VALUES(role)
             """,
-            (game_id, participant_id, role, round_number, datetime.datetime.now().isoformat()),
+            (game_id, participant_id, role, round_number),
         )
 
 # Helper to check role binding (now DB-backed)
@@ -717,25 +882,12 @@ def player2():
 def moderator():
     """Moderator live view."""
     game_id = request.args.get("game_id")
-    participant_id = request.args.get("participant_id")
+    if not session.get("moderator"):
+        return redirect(url_for("index"))
     
     if not game_id:
         return "Missing game_id parameter", 400
     
-    # Enforce role binding
-    allowed, message = check_role_binding(game_id, participant_id, "moderator")
-    if not allowed:
-        # Still render the page so they see the notification on screen
-        chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
-        eliminated = get_eliminated_cards(game_id)
-        return render_template(
-            "moderator.html",
-            game_id=game_id,
-            cards=CARDS,
-            eliminated=eliminated,
-            secret_card={"id": chosen, "name": f"Card {chosen}"},
-        )
-
     chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
     eliminated = get_eliminated_cards(game_id)
     return render_template(
@@ -749,45 +901,49 @@ def moderator():
 
 @app.route("/create_game", methods=["POST"])
 def create_game():
-    """Create a new game and return its ID with participant_ids for each role."""
+    """Create a new game and return its ID with participant_ids for players."""
     game_id = uuid.uuid4().hex
     chosen_card = random.choice(CARDS)["id"]
     
     # Generate unique participant_ids for each role
     player1_id = str(uuid.uuid4())
     player2_id = str(uuid.uuid4())
-    moderator_id = str(uuid.uuid4())
 
     with get_db_conn() as conn:
         c = conn.cursor()
+        # Insert game record
         c.execute(
-            "INSERT INTO games (id, created_at, chosen_card) VALUES (%s, %s, %s)",
-            (game_id, datetime.datetime.now().isoformat(), chosen_card),
+            "INSERT INTO games (id, created_at) VALUES (%s, %s)",
+            (game_id, datetime.datetime.now().isoformat()),
         )
-        # Pre-bind participant_ids to roles in DB
+        # Insert participants
+        for participant_id in [player1_id, player2_id]:
+            c.execute(
+                "INSERT INTO participants (id, created_at) VALUES (%s, %s)",
+                (participant_id, datetime.datetime.now().isoformat()),
+            )
+        # Pre-bind participant_ids to roles in DB for round 1
         c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
-            (game_id, player1_id, "player1", datetime.datetime.now().isoformat()),
+            "INSERT INTO participant_bindings (game_id, participant_id, role, round_number) VALUES (%s, %s, %s, %s)",
+            (game_id, player1_id, "player1", 1),
         )
         c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
-            (game_id, player2_id, "player2", datetime.datetime.now().isoformat()),
+            "INSERT INTO participant_bindings (game_id, participant_id, role, round_number) VALUES (%s, %s, %s, %s)",
+            (game_id, player2_id, "player2", 1),
         )
+        # Create initial round with chosen card
         c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, created_at) VALUES (%s, %s, %s, %s)",
-            (game_id, moderator_id, "moderator", datetime.datetime.now().isoformat()),
+            "INSERT INTO rounds (game_id, round_number, chosen_card_id, started_at) VALUES (%s, %s, %s, %s)",
+            (game_id, 1, chosen_card, datetime.datetime.now().isoformat()),
         )
 
-    record_event("system", "card_draw", game_id, card=chosen_card)
-    print(f"Created new game {game_id} with card {chosen_card}")
     return jsonify({
         "status": "ok",
         "game_id": game_id,
         "chosen_card": chosen_card,
         "participant_ids": {
             "player1": player1_id,
-            "player2": player2_id,
-            "moderator": moderator_id
+            "player2": player2_id
         }
     })
 
@@ -824,7 +980,6 @@ def eliminate_card():
         {"card": int(card_id)},
         to=f"game:{game_id}",
     )
-    print(f"Game {game_id}: card {card_id} eliminated")
     return jsonify({"status": "ok"})
 
 
@@ -990,6 +1145,12 @@ def join_enter():
         
         with get_db_conn() as conn:
             c = conn.cursor()
+            # Insert participant first (foreign key constraint)
+            c.execute(
+                "INSERT INTO participants (id, created_at) VALUES (%s, %s)",
+                (participant_id, datetime.datetime.now().isoformat())
+            )
+            # Then update token with participant_id
             c.execute(
                 "UPDATE access_tokens SET used_at = %s, participant_id = %s WHERE token = %s",
                 (datetime.datetime.now().isoformat(), participant_id, token)
@@ -1037,7 +1198,7 @@ def join_enter():
         # Save updated state to Redis
         set_game_state(current_game_id, game_state)
         
-        # Bind roles in database for round 1
+        # Bind roles in database
         set_participant_binding(current_game_id, game_state['player1_id'], 'player1', round_number=1)
         set_participant_binding(current_game_id, game_state['player2_id'], 'player2', round_number=1)
         
@@ -1127,13 +1288,15 @@ def moderator_open_entry():
         
         with get_db_conn() as conn:
             c = conn.cursor()
+            # Insert game record
             c.execute(
-                "INSERT INTO games (id, created_at, chosen_card) VALUES (%s, %s, %s)",
-                (game_id, datetime.datetime.now().isoformat(), chosen_card),
+                "INSERT INTO games (id, created_at) VALUES (%s, %s)",
+                (game_id, datetime.datetime.now().isoformat()),
             )
+            # Create initial round with chosen card
             c.execute(
                 """
-                INSERT INTO game_round_cards (game_id, round_number, chosen_card, created_at)
+                INSERT INTO rounds (game_id, round_number, chosen_card_id, started_at)
                 VALUES (%s, %s, %s, %s)
                 """,
                 (game_id, 1, chosen_card, datetime.datetime.now().isoformat()),
@@ -1249,6 +1412,8 @@ def moderator_end_game():
     game_state = get_game_state(moderator_game_id)
     if game_state.get('state') == 'CLOSED':
         return jsonify({"status": "error", "message": "No active session"}), 400
+
+    close_round(moderator_game_id)
     game_state['state'] = 'ENDED'
     set_game_state(moderator_game_id, game_state)
     
@@ -1290,6 +1455,8 @@ def moderator_swap_roles():
             "message": "Role swap is only allowed once after round 1"
         }), 400
 
+    close_round(moderator_game_id, current_round)
+
     old_player1_id = game_state.get('player1_id')
     old_player2_id = game_state.get('player2_id')
     if not old_player1_id or not old_player2_id:
@@ -1326,8 +1493,6 @@ def moderator_swap_roles():
             f"P1={game_state['player1_id'][:8]}... P2={game_state['player2_id'][:8]}..."
         ),
     )
-    record_event("system", "card_draw", moderator_game_id, card=new_chosen_card)
-
     socketio.emit(
         "roles_swapped",
         {
@@ -1338,8 +1503,6 @@ def moderator_swap_roles():
         },
         to=f"game:{moderator_game_id}",
     )
-
-    print(f"🔁 Swapped roles for game {moderator_game_id}; round 2 started")
 
     return jsonify({
         "status": "ok",
@@ -1429,7 +1592,9 @@ def moderator_generate_tokens():
     local_time = datetime.datetime.fromtimestamp(time.time())
     response.headers['Content-Disposition'] = f'attachment; filename=access_tokens_{local_time.strftime("%Y%m%d_%H%M%S")}.csv'
     
-    record_event("moderator", "tokens_generated", "system", text=f"Generated {count} tokens")
+    log_game_id = session.get("moderator_session_game_id") or get_current_session_game_id()
+    if log_game_id:
+        record_event("moderator", "tokens_generated", log_game_id, text=f"Generated {count} tokens")
     
     return response
 
@@ -1442,6 +1607,9 @@ def validate_role_binding(game_id, participant_id, claimed_role):
     Enforce role binding: verify that participant_id matches the claimed role.
     Returns (valid: bool, error_msg: str or None)
     """
+    if claimed_role == "moderator":
+        return True, None
+
     if not participant_id:
         return True, None  # No participant_id provided — allow (backward compat)
     
@@ -1459,6 +1627,7 @@ def handle_join(data):
     game_id = data.get("game_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
+    actor_participant_id = participant_id if role != "moderator" else None
     
     if not game_id:
         return {"status": "error", "message": "game_id required"}
@@ -1471,11 +1640,15 @@ def handle_join(data):
     room = f"game:{game_id}"
     
     # Bind participant_id to role for this game
-    if participant_id:
-        set_participant_role(game_id, participant_id, role)
+    if actor_participant_id:
+        set_participant_role(game_id, actor_participant_id, role)
+        try:
+            set_participant_binding(game_id, actor_participant_id, role)
+        except Exception as e:
+            print(f"Socket join: DB role binding skipped for game {game_id}: {e}")
     
     join_room(room)
-    record_event(role, "join", game_id, participant_id=participant_id)
+    record_event(role, "join", game_id, text=role, participant_id=actor_participant_id)
     socketio.emit(
         "system", {"action": "join", "role": role, "game_id": game_id}, to=room
     )
@@ -1501,6 +1674,7 @@ def handle_chat(data):
     game_id = data.get("game_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
+    actor_participant_id = participant_id if role != "moderator" else None
     text = data.get("text", "")
     
     if not game_id:
@@ -1512,10 +1686,14 @@ def handle_chat(data):
         return {"status": "error", "message": error}
     
     # Bind participant_id to role for this game
-    if participant_id:
-        set_participant_role(game_id, participant_id, role)
+    if actor_participant_id:
+        set_participant_role(game_id, actor_participant_id, role)
+        try:
+            set_participant_binding(game_id, actor_participant_id, role)
+        except Exception as e:
+            print(f"Socket chat: DB role binding skipped for game {game_id}: {e}")
     
-    record_event(role, "chat", game_id, text=text, participant_id=participant_id)
+    record_event(role, "chat", game_id, text=text, participant_id=actor_participant_id)
     socketio.emit(
         "chat", {"role": role, "text": text, "game_id": game_id}, to=f"game:{game_id}"
     )
@@ -1529,6 +1707,7 @@ def handle_voice_join(data):
     role = data.get("role", "unknown")
     client_id = data.get("client_id")
     participant_id = data.get("participant_id")
+    actor_participant_id = participant_id if role != "moderator" else None
     
     if not game_id:
         return {"status": "error", "message": "game_id required"}
@@ -1541,11 +1720,15 @@ def handle_voice_join(data):
         return {"status": "error", "message": error}
 
     # Bind participant_id to role for this game
-    if participant_id:
-        set_participant_role(game_id, participant_id, role)
+    if actor_participant_id:
+        set_participant_role(game_id, actor_participant_id, role)
+        try:
+            set_participant_binding(game_id, actor_participant_id, role)
+        except Exception as e:
+            print(f"Socket voice_join: DB role binding skipped for game {game_id}: {e}")
 
     add_voice_participant(game_id, client_id, {"role": role, "socket_id": request.sid})
-    record_event(role, "voice_join", game_id, participant_id=participant_id)
+    record_event(role, "voice_join", game_id, participant_id=actor_participant_id)
 
     # Send the list of existing peers to the new joiner
     voice_participants = get_voice_participants(game_id)
@@ -1571,6 +1754,7 @@ def handle_webrtc_signal(data):
     to_id = data.get("to_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
+    actor_participant_id = participant_id if role != "moderator" else None
     
     if not game_id:
         return {"status": "error", "message": "game_id required"}
@@ -1581,8 +1765,12 @@ def handle_webrtc_signal(data):
         return {"status": "error", "message": error}
     
     # Bind participant_id to role for this game
-    if participant_id:
-        set_participant_role(game_id, participant_id, role)
+    if actor_participant_id:
+        set_participant_role(game_id, actor_participant_id, role)
+        try:
+            set_participant_binding(game_id, actor_participant_id, role)
+        except Exception as e:
+            print(f"Socket webrtc_signal: DB role binding skipped for game {game_id}: {e}")
 
     payload = {
         "game_id": game_id,
@@ -1593,7 +1781,7 @@ def handle_webrtc_signal(data):
         "candidate": data.get("candidate"),
     }
 
-    record_event(role, "webrtc_signal", game_id, participant_id=participant_id)
+    record_event(role, "webrtc_signal", game_id, participant_id=actor_participant_id)
 
     # Route to specific peer's socket
     voice_participants = get_voice_participants(game_id)
@@ -1610,14 +1798,27 @@ def handle_webrtc_signal(data):
 # ---------------------------------------------------------------------
 @app.route("/transcript")
 def transcript():
-    """Return all logged events for a game."""
+    """Return transcript for a game.
+    
+    Query params:
+    - game_id (required): The game ID
+    - limit (optional): Max number of items to return (default 200)
+    - type (optional): Filter by type: 'all' (default), 'events', or 'chat'
+    """
     game_id = request.args.get("game_id")
     
     if not game_id:
         return jsonify({"status": "error", "message": "game_id required"}), 400
     
     limit = int(request.args.get("limit", "200"))
-    return jsonify(get_transcript(game_id, limit))
+    transcript_type = request.args.get("type", "all")
+    
+    if transcript_type == "events":
+        return jsonify(get_transcript(game_id, limit))
+    elif transcript_type == "chat":
+        return jsonify(get_chat_history(game_id, limit))
+    else:  # type == "all" or default
+        return jsonify(get_full_transcript(game_id, limit))
 
 
 # ---------------------------------------------------------------------

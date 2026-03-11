@@ -63,7 +63,7 @@ class TestChat:
 
     def test_player1_send_chat(self, socketio_client, reset_globals, create_test_game):
         """Test Player 1 sending a chat message."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-123"
         player1_id = "player-1-uuid"
@@ -86,15 +86,15 @@ class TestChat:
             'text': 'Is it a person?'
         })
         
-        # Check that message was logged to database
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat' and e['role'] == 'player1']
+        # Check that message was logged to chat table
+        chat_history = get_chat_history(game_id)
+        chat_events = [e for e in chat_history if e['role'] == 'player1']
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == 'Is it a person?'
 
     def test_player2_send_chat(self, socketio_client, reset_globals, create_test_game):
         """Test Player 2 sending a chat message."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-456"
         player2_id = "player-2-uuid"
@@ -117,18 +117,17 @@ class TestChat:
             'text': 'The person has brown hair.'
         })
         
-        # Check that message was logged
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat' and e['role'] == 'player2']
+        # Check that message was logged to chat table
+        chat_history = get_chat_history(game_id)
+        chat_events = [e for e in chat_history if e['role'] == 'player2']
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == 'The person has brown hair.'
 
     def test_moderator_send_chat(self, socketio_client, reset_globals, create_test_game):
         """Test Moderator sending a chat message."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-789"
-        moderator_id = "moderator-uuid"
         
         # Create game record in database first
         create_test_game(game_id)
@@ -136,21 +135,19 @@ class TestChat:
         # Emit join event
         socketio_client.emit('join', {
             'game_id': game_id,
-            'role': 'moderator',
-            'participant_id': moderator_id
+            'role': 'moderator'
         })
         
         # Emit chat message
         socketio_client.emit('chat', {
             'game_id': game_id,
             'role': 'moderator',
-            'participant_id': moderator_id,
             'text': 'Good question. Please continue.'
         })
         
-        # Check that message was logged
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat' and e['role'] == 'moderator']
+        # Check that message was logged to chat table
+        chat_history = get_chat_history(game_id)
+        chat_events = [e for e in chat_history if e['role'] == 'moderator']
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == 'Good question. Please continue.'
 
@@ -177,10 +174,9 @@ class TestChat:
         })
         
         # Empty text should still be logged (for research purposes)
-        from app import get_transcript
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat']
-        assert len(chat_events) > 0
+        from app import get_chat_history
+        chat_history = get_chat_history(game_id)
+        assert len(chat_history) > 0
 
     def test_chat_without_game_id(self, socketio_client, reset_globals, create_test_game):
         """Test chat without game_id returns error."""
@@ -200,7 +196,7 @@ class TestChat:
 
     def test_chat_event_logging_complete(self, socketio_client, reset_globals, create_test_game):
         """Test that chat events are fully logged with all metadata."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-metadata"
         player1_id = "player-1-uuid"
@@ -223,11 +219,11 @@ class TestChat:
         })
         
         # Verify complete event logging
-        transcript = get_transcript(game_id)
-        chat_event = [e for e in transcript if e['action'] == 'chat'][0]
+        chat_history = get_chat_history(game_id)
+        chat_event = chat_history[0]
         
         assert chat_event['role'] == 'player1'
-        assert chat_event['action'] == 'chat'
+        assert chat_event['text'] == message_text
         assert chat_event['text'] == message_text
         assert chat_event['participant_id'] == player1_id
         assert chat_event['game_id'] == game_id
@@ -235,7 +231,7 @@ class TestChat:
 
     def test_multiple_chat_sequence(self, socketio_client, reset_globals, create_test_game):
         """Test a sequence of chat messages (Q&A flow)."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-sequence"
         player1_id = "player-1-uuid"
@@ -282,20 +278,19 @@ class TestChat:
         })
         
         # Check sequence
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat']
+        chat_history = get_chat_history(game_id)
         
-        assert len(chat_events) == 3
-        assert chat_events[0]['role'] == 'player2'
-        assert chat_events[0]['text'] == 'Is it wearing a hat?'
-        assert chat_events[1]['role'] == 'player1'
-        assert chat_events[1]['text'] == 'Yes.'
-        assert chat_events[2]['role'] == 'player2'
-        assert chat_events[2]['text'] == 'Is it a red hat?'
+        assert len(chat_history) == 3
+        assert chat_history[0]['role'] == 'player2'
+        assert chat_history[0]['text'] == 'Is it wearing a hat?'
+        assert chat_history[1]['role'] == 'player1'
+        assert chat_history[1]['text'] == 'Yes.'
+        assert chat_history[2]['role'] == 'player2'
+        assert chat_history[2]['text'] == 'Is it a red hat?'
 
     def test_chat_with_special_characters(self, socketio_client, reset_globals, create_test_game):
         """Test chat messages with special characters and unicode."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-special"
         player1_id = "player-1-uuid"
@@ -317,14 +312,13 @@ class TestChat:
             'text': special_text
         })
         
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat']
-        assert len(chat_events) > 0
-        assert chat_events[0]['text'] == special_text
+        transcript = get_chat_history(game_id)
+        assert len(transcript) > 0
+        assert transcript[0]['text'] == special_text
 
     def test_chat_before_game_starts(self, socketio_client, reset_globals, create_test_game):
         """Test that chat can happen before game officially starts."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-early-chat"
         player1_id = "player-1-uuid"
@@ -346,13 +340,12 @@ class TestChat:
             'text': 'Ready when you are'
         })
         
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat']
-        assert len(chat_events) > 0
+        chat_history = get_chat_history(game_id)
+        assert len(chat_history) > 0
 
     def test_chat_after_game_ends(self, socketio_client, reset_globals, create_test_game):
         """Test that chat can continue after game ends (for debrief)."""
-        from app import get_transcript
+        from app import get_chat_history
         
         game_id = "test-game-debrief"
         player1_id = "player-1-uuid"
@@ -374,13 +367,12 @@ class TestChat:
             'text': 'That was interesting!'
         })
         
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat']
-        assert len(chat_events) > 0
+        chat_history = get_chat_history(game_id)
+        assert len(chat_history) > 0
 
     def test_multiple_chat_sequence(self, socketio_client, reset_globals, create_test_game):
         """Test a sequence of chat messages (Q&A flow)."""
-        from app import get_transcript
+        from app import get_chat_history
 
         game_id = str(uuid.uuid4())
         player1_id = "player-1-uuid"
@@ -427,13 +419,12 @@ class TestChat:
         })
 
         # Check sequence
-        transcript = get_transcript(game_id)
-        chat_events = [e for e in transcript if e['action'] == 'chat']
+        chat_history = get_chat_history(game_id)
 
-        assert len(chat_events) == 3
-        assert chat_events[0]['role'] == 'player2'
-        assert chat_events[0]['text'] == 'Is it wearing a hat?'
-        assert chat_events[1]['role'] == 'player1'
-        assert chat_events[1]['text'] == 'Yes.'
-        assert chat_events[2]['role'] == 'player2'
-        assert chat_events[2]['text'] == 'Is it a red hat?'
+        assert len(chat_history) == 3
+        assert chat_history[0]['role'] == 'player2'
+        assert chat_history[0]['text'] == 'Is it wearing a hat?'
+        assert chat_history[1]['role'] == 'player1'
+        assert chat_history[1]['text'] == 'Yes.'
+        assert chat_history[2]['role'] == 'player2'
+        assert chat_history[2]['text'] == 'Is it a red hat?'

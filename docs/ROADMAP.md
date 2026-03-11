@@ -17,21 +17,21 @@ This roadmap outlines the current development milestones and future goals for th
 
 ## Phase 2 – First Game Playable
 
-- [ ] Add win condition & final guess UI 
+- [x] Add win condition & final guess UI 
 - [x] Improve card layout and responsive design  
 - [x] Add index page with login for moderator
 - [x] Add moderator dashboard  
-- [ ] Pre-generate game IDs in advance for participant distribution 
-- [ ] Enable export of game data as `.csv` or `.json` 
+- [x] Pre-generate game IDs in advance for participant distribution 
+- [x] Enable export of game data as `.csv` or `.json` 
 
 ---
 
 ## Phase 3 – Live Audio & Moderator-Controlled Recording 
 
 ### Live Voice Communication
-- [ ] Add audio_events table to SQLite schema
-- [ ] Integrate WebRTC for 3-way peer-to-peer audio 
-- [ ] Use Socket.IO for WebRTC signaling 
+- [x] Add audio_events table to SQL schema
+- [x] Integrate WebRTC for 3-way peer-to-peer audio 
+- [x] Use Socket.IO for WebRTC signaling 
 
 ### Moderator Recording Control
 - [ ] Add "Start/Stop Recording" buttons to moderator dashboard 
@@ -47,7 +47,7 @@ This roadmap outlines the current development milestones and future goals for th
 ---
 
 ## Phase 4 – Production Deployment & Security
-- [ ] Migrate from SQLite to PostgreSQL
+- [x] Migrate from SQLite to PostgreSQL
 - [ ] Enable HTTPS with SSL certificates 
 - [ ] Set up reverse proxy (nginx) for production hosting
 - [ ] Require MODERATOR_PASSWORD environment variable (no hardcoded default)
@@ -68,7 +68,7 @@ This roadmap outlines the current development milestones and future goals for th
 ---
 
 ### 🗓️ Last Updated
-January 15, 2026
+March 11, 2026
 
 
 
