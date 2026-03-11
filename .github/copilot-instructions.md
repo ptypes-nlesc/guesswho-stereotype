@@ -7,39 +7,55 @@ This is a Flask-based web application implementing a multi-player "Guess Who" ga
 ## Architecture Pattern
 
 - **Three-role design**: Player 1 (secret card holder), Player 2 (guesser with 12-card grid), Moderator (session controller and observer)
-- **SQLite database**: All game state and events persisted to `db/games.db` with automatic initialization
+- **MySQL database**: Persistent game/session/chat/audit data in MySQL
+- **Redis-backed runtime state**: Active session state, role cache, and voice participants (with in-memory fallback)
 - **Role-binding system**: participant_id ↔ role mapping stored in DB and in-memory, enforced at route/socket level
 - **Token-based authentication**: Moderators generate invitation tokens (30-day expiration) for player access
 - **Game state machine**: CLOSED → OPEN → READY → IN_PROGRESS → ENDED → CLOSED state transitions
 
 ## Key Components
 
-### Database Schema (`db/games.db`)
+### Database Schema (MySQL)
 
 **Tables:**
-- `games`: game_id (PK), created_at, chosen_card
-- `events`: id (PK), game_id, role, action, text, card, participant_id, timestamp
-- `eliminated_cards`: (game_id, card_id) -> PK, eliminated_at timestamp
-- `participant_bindings`: (game_id, participant_id) -> PK, role, created_at
-- `access_tokens`: token (PK), created_at, expires_at (30 days), used_at, participant_id
-- `audio_events`: id (PK), game_id, role, start_time, end_time, duration, audio_path, transcript, timestamp
+- `cards`: id, name, image_path, created_at
+- `participants`: id, created_at
+- `games`: id, created_at
+- `rounds`: (game_id, round_number) PK, chosen_card_id, started_at, ended_at
+- `participant_bindings`: (game_id, participant_id, round_number) PK, role, bound_at
+- `events`: id PK, game_id, participant_id, action, text, timestamp (**system events only**)
+- `chat`: id PK, game_id, participant_id, role, text, timestamp
+- `eliminated_cards`: (game_id, round_number, card_id) PK, eliminated_at
+- `audio_events`: id PK, game_id, participant_id, start_time, end_time, audio_path, transcript, timestamp
+- `access_tokens`: token PK, created_at, expires_at (30 days), used_at, participant_id
 
 ### Core Flask App (`app.py`)
 
 - **Database utilities**: `get_db_conn()`, `init_db()`, `log_event()`, helper getters
-- **Game management**: GAME_STATES dict tracks session state per game_id with structure:
+- **Game management**: Redis-backed state with in-memory fallback. Per-game state structure:
   ```python
   {
     'state': 'CLOSED|OPEN|READY|IN_PROGRESS|ENDED',
     'waiting_participants': [{'id': participant_id, 'timestamp': iso_timestamp}, ...],
-    'player1_id': uuid_string,
-    'player2_id': uuid_string
+        'player1_id': uuid_string,
+        'player2_id': uuid_string,
+        'round_number': int,
+        'round_phase': 'ACTIVE|COMPLETE'
   }
   ```
 - **CURRENT_SESSION_GAME_ID**: Global variable tracking the active game for participant joins
 - **PARTICIPANT_ROLES**: In-memory cache mapping (game_id, participant_id) → role
 - **Role binding enforcement**: Routes and Socket.IO endpoints validate participant_id matches required role before allowing action
-- **Event logging**: All actions logged to `events` table with structured schema (role, action, text, card, timestamp)
+- **Logging split**:
+    - `events` = system/session events only
+    - `chat` = chat messages
+    - `eliminated_cards` = elimination facts
+
+### Moderator Identity
+
+- Moderator authentication is session/password based (`session["moderator"]`).
+- Moderator is **not** modeled as a participant ID in normal flow.
+- Player participant IDs are the authoritative identities for binding and gameplay.
 
 ### Frontend Architecture
 
@@ -104,10 +120,18 @@ The state machine follows a strict sequence:
 
 ### Logging Schema
 
-Every action logged to `events` table with consistent structure:
-- `role`: "player1" | "player2" | "moderator" | "system"
-- `action`: "join" | "chat" | "question" | "answer" | "eliminate" | "voice_join" | "webrtc_signal" | "note" | "card_draw" | "session_created" | "game_started" | "game_ended" | "entry_opened" | "entry_closed" | "session_reset" | "tokens_generated"
-- Plus action-specific fields: `text`, `card`, `participant_id`, `timestamp`
+`events` table stores only system/session events, e.g.:
+- `session_created`, `entry_closed`, `game_started`, `game_ended`, `session_reset`, `tokens_generated`, `roles_swapped`, `join`, `voice_join`, `webrtc_signal`
+
+`chat` table stores participant/moderator chat rows:
+- `game_id`, `participant_id` (nullable for moderator), `role`, `text`, `timestamp`
+
+`eliminated_cards` stores elimination facts:
+- `game_id`, `round_number`, `card_id`, `eliminated_at`
+
+Notes:
+- `card_draw` is not stored in `events` (secret card is in `rounds.chosen_card_id`).
+- `events` no longer has a `card_id` column.
 
 ### Token System
 
@@ -131,6 +155,14 @@ pip install -r requirements.txt
 # Create .env file with required variables
 echo "SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')" > .env
 echo "MODERATOR_PASSWORD=your-secure-password" >> .env
+echo "MYSQL_HOST=localhost" >> .env
+echo "MYSQL_PORT=3306" >> .env
+echo "MYSQL_USER=your_user" >> .env
+echo "MYSQL_PASSWORD=your_password" >> .env
+echo "MYSQL_DATABASE=your_database" >> .env
+echo "REDIS_HOST=localhost" >> .env
+echo "REDIS_PORT=6379" >> .env
+echo "REDIS_DB=0" >> .env
 
 # Run the app
 python app.py  # Runs on http://localhost:5000
@@ -140,7 +172,7 @@ python app.py  # Runs on http://localhost:5000
 
 1. **Open browser tabs:**
    - Tab 1: `http://localhost:5000/dashboard` (Moderator - log in with MODERATOR_PASSWORD)
-   - Tab 2: Inspector → SQLite viewer for `db/games.db`
+    - Tab 2: MySQL client/query tool
 
 2. **Moderator workflow:**
    - Click "Open Entry" to create game and enable joins
@@ -156,13 +188,14 @@ python app.py  # Runs on http://localhost:5000
 
 4. **Verify database:**
    - Check `games` table has new game_id
-   - Check `events` table has all role actions logged
+    - Check `events` table has system/session actions
+    - Check `chat` table has chat rows
    - Check `eliminated_cards` table tracks card removals
    - Check `access_tokens` table shows used/unused tokens
 
 ### Key Directories
 
-- `db/`: SQLite database file `games.db` (auto-created)
+- `db/`: local artifacts (legacy SQLite file may exist but is not source of truth)
 - `templates/`: Role-specific HTML views (dashboard, player1, player2, moderator, waiting)
 - `static/`: Shared JS/CSS (script.js, style.css, webrtc.js)
 - `static/cards/`: Card image files (1.png through 12.png)
@@ -192,15 +225,17 @@ pytest tests/test_tokens.py -v  # Token generation and validation
 ## Current Implementation Status
 
 **✅ Completed:**
-- SQLite database with full schema
+- MySQL schema initialization (cards, participants, games, rounds, bindings, events, chat, eliminations, tokens, audio)
+- Redis-backed runtime state with in-memory fallback
 - Game state machine (CLOSED/OPEN/READY/IN_PROGRESS/ENDED)
 - Token-based player authentication (30-day expiration)
 - Role binding system (DB + in-memory)
 - Moderator session management (create/open/close/start/end/reset)
 - CSV token export for distribution
-- Event logging to database
+- Split logging model (events/chat/eliminations)
 - Socket.IO chat/voice/signaling
-- Card elimination tracking
+- Card elimination tracking per round
+- Round lifecycle timestamps (`started_at`, `ended_at`)
 - Full test suite (auth, game flow, gameplay, role binding, tokens)
 
 **🚀 Future Enhancements:**
