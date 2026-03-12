@@ -1462,6 +1462,9 @@ def moderator_swap_roles():
     if not old_player1_id or not old_player2_id:
         return jsonify({"status": "error", "message": "Missing player IDs"}), 400
 
+    # Read round 1 secret card before switching current round in game state
+    previous_chosen_card = get_chosen_card(moderator_game_id)
+
     # Swap role assignments in game state
     game_state['player1_id'] = old_player2_id
     game_state['player2_id'] = old_player1_id
@@ -1476,7 +1479,6 @@ def moderator_swap_roles():
     set_participant_role(moderator_game_id, old_player2_id, 'player1')
 
     # Draw and persist a new secret card for round 2 (different from previous when possible)
-    previous_chosen_card = get_chosen_card(moderator_game_id)
     available_round2_cards = [card["id"] for card in CARDS if card["id"] != previous_chosen_card]
     if available_round2_cards:
         new_chosen_card = random.choice(available_round2_cards)
