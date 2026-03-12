@@ -4,6 +4,7 @@ import os
 import csv
 import io
 from urllib.parse import urlparse, parse_qs
+from fnmatch import fnmatch
 
 # Test with the actual MODERATOR_PASSWORD from .env
 MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD", "test-password")
@@ -192,6 +193,69 @@ class TestGameFlow:
         assert data.get("status") == "in_game"
         assert data.get("role") == "player1"
         assert data.get("game_id") == game_id
+
+    def test_game_status_survives_temporary_redis_read_failure(self, client, reset_globals, monkeypatch):
+        """Player status should stay available if Redis has a transient read failure."""
+        import app as app_module
+
+        class FakeRedis:
+            def __init__(self):
+                self.values = {}
+                self.hashes = {}
+                self.fail_reads = False
+
+            def get(self, key):
+                if self.fail_reads:
+                    raise RuntimeError("temporary redis read failure")
+                return self.values.get(key)
+
+            def set(self, key, value):
+                self.values[key] = value
+
+            def delete(self, key):
+                self.values.pop(key, None)
+                self.hashes.pop(key, None)
+
+            def hgetall(self, key):
+                if self.fail_reads:
+                    raise RuntimeError("temporary redis read failure")
+                return dict(self.hashes.get(key, {}))
+
+            def hset(self, key, mapping=None, **kwargs):
+                bucket = self.hashes.setdefault(key, {})
+                if mapping:
+                    bucket.update(mapping)
+                bucket.update(kwargs)
+
+            def keys(self, pattern):
+                all_keys = list(self.values.keys()) + list(self.hashes.keys())
+                return [key for key in all_keys if fnmatch(key, pattern)]
+
+        fake_redis = FakeRedis()
+        monkeypatch.setattr(app_module, "redis_client", fake_redis)
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+
+        res1 = client.post("/join/enter", json={"token": tokens[0]})
+        p1_id = json.loads(res1.data)["participant_id"]
+
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+
+        fake_redis.fail_reads = True
+
+        res = client.get(f"/game/status?game_id={game_id}&participant_id={p1_id}")
+        assert res.status_code == 200
+
+        data = json.loads(res.data)
+        assert data.get("game_id") == game_id
+        assert data.get("state") == "IN_PROGRESS"
+        assert data.get("is_player") is True
 
     def test_moderator_close_entry(self, client, reset_globals):
         """Test moderator closing entry manually before 2 players join."""

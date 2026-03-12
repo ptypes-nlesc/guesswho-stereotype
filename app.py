@@ -133,7 +133,9 @@ def get_game_state(game_id):
     try:
         data = get_redis().hgetall(f"game:{game_id}:state")
         if not data:
-            return None
+            data = GAME_STATES.get(game_id)
+            if not data:
+                return None
         # Convert JSON fields and "null" sentinels
         if 'waiting_participants' in data:
             data['waiting_participants'] = json.loads(data['waiting_participants'])
@@ -149,12 +151,20 @@ def get_game_state(game_id):
         return data
     except Exception as e:
         print(f"Error getting game state: {e}")
-        return None
+        data = GAME_STATES.get(game_id)
+        if not data:
+            return None
+        if 'round_number' in data:
+            try:
+                data['round_number'] = int(data['round_number'])
+            except (TypeError, ValueError):
+                data['round_number'] = 1
+        return data
 
 def set_game_state(game_id, state_dict):
     """Store game state in Redis."""
+    GAME_STATES[game_id] = dict(state_dict)
     if not get_redis():
-        GAME_STATES[game_id] = state_dict
         return
     try:
         # Convert lists/dicts to JSON for storage, handle None values
@@ -173,8 +183,8 @@ def set_game_state(game_id, state_dict):
 
 def delete_game_state(game_id):
     """Delete game state from Redis."""
+    GAME_STATES.pop(game_id, None)
     if not get_redis():
-        GAME_STATES.pop(game_id, None)
         return
     try:
         get_redis().delete(f"game:{game_id}:state")
@@ -286,16 +296,16 @@ def get_current_session_game_id():
         return CURRENT_SESSION_GAME_ID
     try:
         game_id = get_redis().get("current_session_game_id")
-        return game_id
+        return game_id or CURRENT_SESSION_GAME_ID
     except Exception as e:
         print(f"Error getting current session game ID: {e}")
         return CURRENT_SESSION_GAME_ID
 
 def set_current_session_game_id(game_id):
     """Set the current session game ID."""
+    global CURRENT_SESSION_GAME_ID
+    CURRENT_SESSION_GAME_ID = game_id
     if not get_redis():
-        global CURRENT_SESSION_GAME_ID
-        CURRENT_SESSION_GAME_ID = game_id
         return
     try:
         if game_id is None:
@@ -994,27 +1004,17 @@ def game_status():
     
     if not game_id:
         return jsonify({"status": "error", "message": "game_id required"}), 400
-    
-    current_game_id = get_current_session_game_id()
-    if not current_game_id or not get_game_state(current_game_id):
+
+    game_state = get_game_state(game_id)
+    if not game_state:
         return jsonify({
             "state": "CLOSED",
             "is_player": False,
             "message": "This game session is no longer active"
         })
-    
-    # Only allow access to the current active session game
-    if game_id != current_game_id:
-        return jsonify({
-            "state": "CLOSED",
-            "is_player": False,
-            "message": "This game session is no longer active"
-        })
-    
-    game_state = get_game_state(current_game_id)
-    
+
     return jsonify({
-        "game_id": current_game_id,
+        "game_id": game_id,
         "state": game_state['state'],
         "is_player": participant_id in [game_state.get('player1_id'), game_state.get('player2_id')]
     })
