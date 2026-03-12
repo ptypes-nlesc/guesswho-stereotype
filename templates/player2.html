@@ -104,6 +104,8 @@
 
         // --- Game Status Polling -----------------------------------------------
         let gameEnded = false;
+        let consecutiveEndStateChecks = 0;
+        const END_STATE_CONFIRMATION_THRESHOLD = 3;
         
         async function checkGameStatus() {
             try {
@@ -116,6 +118,11 @@
                 const data = await res.json();
                 
                 if (data.state === 'ENDED' || data.state === 'CLOSED') {
+                    consecutiveEndStateChecks += 1;
+                    if (consecutiveEndStateChecks < END_STATE_CONFIRMATION_THRESHOLD) {
+                        return;
+                    }
+
                     if (!gameEnded) {
                         gameEnded = true;
                         // Disable interactions
@@ -158,6 +165,8 @@
                     if (gameStatusInterval) {
                         clearInterval(gameStatusInterval);
                     }
+                } else {
+                    consecutiveEndStateChecks = 0;
                 }
             } catch (err) {
                 console.error('Game status check failed:', err);
