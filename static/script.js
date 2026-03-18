@@ -57,7 +57,8 @@ function appendTranscriptEntry(obj) {
     el.className = 'transcript-entry';
     // Prefer text/message, fallback to note/question/answer
     const text = obj.text || obj.message || obj.note || obj.question || obj.answer || '';
-    el.textContent = `[${obj.role}] ${obj.action}` + (obj.card ? `: card ${obj.card}` : '') + (text ? `: ${text}` : '');
+    const cardLabel = obj.card_name || (obj.card ? `Card ${obj.card}` : '');
+    el.textContent = `[${obj.role}] ${obj.action}` + (cardLabel ? `: ${cardLabel}` : '') + (text ? `: ${text}` : '');
     c.appendChild(el);
     c.scrollTop = c.scrollHeight;
   });

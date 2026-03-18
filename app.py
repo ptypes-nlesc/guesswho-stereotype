@@ -107,7 +107,41 @@ def get_db_conn():
         conn.close()
 
 # Card catalog (12 cards)
-CARDS = [{"id": i, "name": f"Card {i}"} for i in range(1, 13)]
+CARDS = [
+    {"id": 1, "name": "Rico Strong"},
+    {"id": 2, "name": "Veronica Rodriguez"},
+    {"id": 3, "name": "Lacey Duvalle"},
+    {"id": 4, "name": "Jada Fire"},
+    {"id": 5, "name": "Danny D."},
+    {"id": 6, "name": "Leilani Leeane"},
+    {"id": 7, "name": "Yasmine Webb"},
+    {"id": 8, "name": "Prince Yahshua"},
+    {"id": 9, "name": "Shane Diesel"},
+    {"id": 10, "name": "Mr.Pete"},
+    {"id": 11, "name": "Lily Star"},
+    {"id": 12, "name": "Mika Tan"},
+]
+CARD_NAME_BY_ID = {card["id"]: card["name"] for card in CARDS}
+
+
+def get_card_name(card_id):
+    """Resolve a card ID to display name (DB first, catalog fallback)."""
+    try:
+        card_id = int(card_id)
+    except (TypeError, ValueError):
+        return None
+
+    try:
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT name FROM cards WHERE id = %s", (card_id,))
+            row = c.fetchone()
+            if row and row.get("name"):
+                return row["name"]
+    except Exception as e:
+        print(f"Error resolving card name for {card_id}: {e}")
+
+    return CARD_NAME_BY_ID.get(card_id, f"Card {card_id}")
 
 # =====================================================================
 # Redis abstraction layer for state management
@@ -493,8 +527,11 @@ def init_db():
         for card in CARDS:
             c.execute(
                 """
-                INSERT IGNORE INTO cards (id, name, image_path)
+                INSERT INTO cards (id, name, image_path)
                 VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    name = VALUES(name),
+                    image_path = VALUES(image_path)
                 """,
                 (card["id"], card["name"], f"cards/{card['id']}.png")
             )
@@ -639,10 +676,11 @@ def get_elimination_history(game_id, limit=200, round_number=None):
         if round_number is None:
             c.execute(
                 """
-                SELECT game_id, round_number, card_id, eliminated_at
-                FROM eliminated_cards
-                WHERE game_id = %s
-                ORDER BY eliminated_at DESC, card_id DESC
+                SELECT ec.game_id, ec.round_number, ec.card_id, ec.eliminated_at, c.name AS card_name
+                FROM eliminated_cards ec
+                LEFT JOIN cards c ON c.id = ec.card_id
+                WHERE ec.game_id = %s
+                ORDER BY ec.eliminated_at DESC, ec.card_id DESC
                 LIMIT %s
                 """,
                 (game_id, limit),
@@ -650,10 +688,11 @@ def get_elimination_history(game_id, limit=200, round_number=None):
         else:
             c.execute(
                 """
-                SELECT game_id, round_number, card_id, eliminated_at
-                FROM eliminated_cards
-                WHERE game_id = %s AND round_number = %s
-                ORDER BY eliminated_at DESC, card_id DESC
+                SELECT ec.game_id, ec.round_number, ec.card_id, ec.eliminated_at, c.name AS card_name
+                FROM eliminated_cards ec
+                LEFT JOIN cards c ON c.id = ec.card_id
+                WHERE ec.game_id = %s AND ec.round_number = %s
+                ORDER BY ec.eliminated_at DESC, ec.card_id DESC
                 LIMIT %s
                 """,
                 (game_id, round_number, limit),
@@ -725,6 +764,7 @@ def get_full_transcript(game_id, limit=200, include_eliminations=False, eliminat
             'text': None,
             'participant_id': None,
             'card': elimination.get('card_id'),
+            'card_name': elimination.get('card_name') or get_card_name(elimination.get('card_id')),
             'round_number': elimination.get('round_number'),
             'game_id': elimination.get('game_id'),
         })
@@ -1018,9 +1058,12 @@ def eliminate_card():
     if not card_id:
         return jsonify({"status": "error", "message": "card_id required"}), 400
 
+    card_id_int = int(card_id)
+    card_name = get_card_name(card_id_int)
+
     # Check if card is already eliminated (in current round)
     eliminated = get_eliminated_cards(game_id)  # Auto-detects current round
-    if int(card_id) in eliminated:
+    if card_id_int in eliminated:
         return jsonify({"status": "ok"})  # Already eliminated, no action needed
 
     # End-of-game logic: prevent eliminating the final remaining card
@@ -1032,15 +1075,15 @@ def eliminate_card():
             "message": "Cannot eliminate all cards. At least one card must remain."
         }), 400
 
-    record_event("player2", "eliminate", game_id, card=card_id)
+    record_event("player2", "eliminate", game_id, card=card_id_int)
     socketio.emit(
         "card_eliminated",
-        {"card": int(card_id)},
+        {"card": card_id_int, "card_name": card_name},
         to=f"game:{game_id}:player2",
     )
     socketio.emit(
         "eliminate",
-        {"card": int(card_id)},
+        {"card": card_id_int, "card_name": card_name},
         to=f"game:{game_id}:moderator",
     )
 
