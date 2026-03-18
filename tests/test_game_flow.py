@@ -403,6 +403,165 @@ class TestGameFlow:
         # Verify we have exactly 5 eliminated cards
         assert len(eliminated) == 5
 
+    def test_elimination_transcript_is_moderator_only(self, client, reset_globals):
+        """Eliminated-card transcript entries should be visible only to the moderator."""
+        from app import app as flask_app
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+
+        res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": 4})
+        assert res.status_code == 200
+
+        moderator_transcript = client.get(f"/transcript?game_id={game_id}&limit=200")
+        moderator_entries = json.loads(moderator_transcript.data)
+        assert any(entry.get("action") == "eliminate" and entry.get("card") == 4 for entry in moderator_entries)
+
+        with flask_app.test_client() as participant_client:
+            participant_transcript = participant_client.get(f"/transcript?game_id={game_id}&limit=200")
+            participant_entries = json.loads(participant_transcript.data)
+
+        assert not any(entry.get("action") == "eliminate" for entry in participant_entries)
+
+    def test_round_complete_transcript_is_visible_to_all_roles(self, client, reset_globals):
+        """Round completion should be visible in transcript for moderator and participants."""
+        from app import app as flask_app
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+
+        for card_id in range(1, 12):
+            res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": card_id})
+            assert res.status_code == 200
+
+        moderator_transcript = client.get(f"/transcript?game_id={game_id}&limit=200")
+        moderator_entries = json.loads(moderator_transcript.data)
+        assert any(
+            entry.get("action") == "round_complete" and entry.get("text") == "Einde van de ronde"
+            for entry in moderator_entries
+        )
+
+        with flask_app.test_client() as participant_client:
+            participant_transcript = participant_client.get(f"/transcript?game_id={game_id}&limit=200")
+            participant_entries = json.loads(participant_transcript.data)
+
+        assert any(
+            entry.get("action") == "round_complete" and entry.get("text") == "Einde van de ronde"
+            for entry in participant_entries
+        )
+
+    def test_round_two_completion_uses_final_game_message(self, client, reset_globals):
+        """Round 2 completion should use the final game message."""
+        from app import app as flask_app
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+        client.post("/moderator/control/swap_roles", json={})
+
+        for card_id in range(1, 12):
+            res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": card_id})
+            assert res.status_code == 200
+
+        moderator_transcript = client.get(f"/transcript?game_id={game_id}&limit=200")
+        moderator_entries = json.loads(moderator_transcript.data)
+        assert any(
+            entry.get("action") == "round_complete" and entry.get("text") == "Einde van het spel"
+            for entry in moderator_entries
+        )
+
+        with flask_app.test_client() as participant_client:
+            participant_transcript = participant_client.get(f"/transcript?game_id={game_id}&limit=200")
+            participant_entries = json.loads(participant_transcript.data)
+
+        assert any(
+            entry.get("action") == "round_complete" and entry.get("text") == "Einde van het spel"
+            for entry in participant_entries
+        )
+
+    def test_round_one_completion_blocks_extra_elimination_before_role_swap(self, client, reset_globals):
+        """After round 1 completes, the final remaining card cannot be eliminated before swapping roles."""
+        from app import get_eliminated_cards
+
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+
+        for card_id in range(1, 12):
+            res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": card_id})
+            assert res.status_code == 200
+
+        eliminated_round1 = get_eliminated_cards(game_id, round_number=1)
+        assert len(eliminated_round1) == 11
+
+        res_extra = client.post("/eliminate_card", json={"game_id": game_id, "card_id": 12})
+        assert res_extra.status_code == 400
+
+        eliminated_round1_after = get_eliminated_cards(game_id, round_number=1)
+        assert len(eliminated_round1_after) == 11
+        assert 12 not in eliminated_round1_after
+
+        res_swap = client.post("/moderator/control/swap_roles", json={})
+        assert res_swap.status_code == 200
+        assert get_eliminated_cards(game_id, round_number=2) == set()
+
+    def test_moderator_transcript_shows_only_current_round_eliminations(self, client, reset_globals):
+        """After swapping to round 2, moderator transcript should hide round 1 elimination lines."""
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data).get("game_id")
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+
+        # Round 1 elimination should be visible before swap
+        client.post("/eliminate_card", json={"game_id": game_id, "card_id": 5})
+        before_swap = client.get(f"/transcript?game_id={game_id}&limit=200")
+        before_entries = json.loads(before_swap.data)
+        assert any(entry.get("action") == "eliminate" and entry.get("card") == 5 for entry in before_entries)
+
+        # Swap to round 2 and confirm round 1 elimination lines are no longer shown
+        res_swap = client.post("/moderator/control/swap_roles", json={})
+        assert res_swap.status_code == 200
+
+        after_swap = client.get(f"/transcript?game_id={game_id}&limit=200")
+        after_entries = json.loads(after_swap.data)
+        assert not any(entry.get("action") == "eliminate" and entry.get("round_number") == 1 for entry in after_entries)
+
     def test_full_game_lifecycle(self, client, reset_globals):
         """Test complete game lifecycle: open → join → start → eliminate → end → reset."""
         from app import get_game_state, get_eliminated_cards

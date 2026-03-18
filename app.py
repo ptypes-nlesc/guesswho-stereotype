@@ -632,6 +632,36 @@ def get_chat_history(game_id, limit=200):
         return rows
 
 
+def get_elimination_history(game_id, limit=200, round_number=None):
+    """Get eliminated-card events for a game from the eliminated_cards table."""
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        if round_number is None:
+            c.execute(
+                """
+                SELECT game_id, round_number, card_id, eliminated_at
+                FROM eliminated_cards
+                WHERE game_id = %s
+                ORDER BY eliminated_at DESC, card_id DESC
+                LIMIT %s
+                """,
+                (game_id, limit),
+            )
+        else:
+            c.execute(
+                """
+                SELECT game_id, round_number, card_id, eliminated_at
+                FROM eliminated_cards
+                WHERE game_id = %s AND round_number = %s
+                ORDER BY eliminated_at DESC, card_id DESC
+                LIMIT %s
+                """,
+                (game_id, round_number, limit),
+            )
+        rows = [dict(r) for r in reversed(c.fetchall())]
+        return rows
+
+
 def get_transcript(game_id, limit=200):
     """Get system events from the events table (join, entry_opened, game_started, etc.)."""
     with get_db_conn() as conn:
@@ -652,10 +682,15 @@ def get_transcript(game_id, limit=200):
         return rows
 
 
-def get_full_transcript(game_id, limit=200):
-    """Get full transcript including both system events and chat messages, ordered by timestamp."""
+def get_full_transcript(game_id, limit=200, include_eliminations=False, elimination_round_number=None):
+    """Get full transcript ordered by timestamp, with moderator-only elimination entries when requested."""
     system_events = get_transcript(game_id, limit)
     chat_messages = get_chat_history(game_id, limit)
+    elimination_events = get_elimination_history(
+        game_id,
+        limit,
+        round_number=elimination_round_number,
+    ) if include_eliminations else []
     
     # Combine and sort by timestamp
     combined = []
@@ -679,6 +714,19 @@ def get_full_transcript(game_id, limit=200):
             'text': msg.get('text'),
             'participant_id': msg.get('participant_id'),
             **msg
+        })
+
+    for elimination in elimination_events:
+        combined.append({
+            'type': 'event',
+            'timestamp': elimination.get('eliminated_at'),
+            'action': 'eliminate',
+            'role': 'player2',
+            'text': None,
+            'participant_id': None,
+            'card': elimination.get('card_id'),
+            'round_number': elimination.get('round_number'),
+            'game_id': elimination.get('game_id'),
         })
     
     # Sort by timestamp
@@ -986,10 +1034,36 @@ def eliminate_card():
 
     record_event("player2", "eliminate", game_id, card=card_id)
     socketio.emit(
+        "card_eliminated",
+        {"card": int(card_id)},
+        to=f"game:{game_id}:player2",
+    )
+    socketio.emit(
         "eliminate",
         {"card": int(card_id)},
-        to=f"game:{game_id}",
+        to=f"game:{game_id}:moderator",
     )
+
+    remaining_cards = total_cards - (len(eliminated) + 1)
+    if remaining_cards == 1:
+        game_state = get_game_state(game_id)
+        current_round = 1
+        if game_state:
+            try:
+                current_round = int(game_state.get('round_number', 1))
+            except (TypeError, ValueError):
+                current_round = 1
+            game_state['round_phase'] = 'COMPLETE'
+            set_game_state(game_id, game_state)
+        close_round(game_id)
+        completion_message = "Einde van het spel" if current_round >= 2 else "Einde van de ronde"
+        record_event("system", "round_complete", game_id, text=completion_message)
+        socketio.emit(
+            "round_complete",
+            {"game_id": game_id, "message": completion_message, "round_number": current_round},
+            to=f"game:{game_id}",
+        )
+
     return jsonify({"status": "ok"})
 
 
@@ -1640,6 +1714,7 @@ def handle_join(data):
         return {"status": "error", "message": error}
     
     room = f"game:{game_id}"
+    role_room = f"game:{game_id}:{role}"
     
     # Bind participant_id to role for this game
     if actor_participant_id:
@@ -1650,6 +1725,7 @@ def handle_join(data):
             print(f"Socket join: DB role binding skipped for game {game_id}: {e}")
     
     join_room(room)
+    join_room(role_room)
     record_event(role, "join", game_id, text=role, participant_id=actor_participant_id)
     socketio.emit(
         "system", {"action": "join", "role": role, "game_id": game_id}, to=room
@@ -1814,13 +1890,29 @@ def transcript():
     
     limit = int(request.args.get("limit", "200"))
     transcript_type = request.args.get("type", "all")
+    include_eliminations = bool(session.get("moderator"))
+    elimination_round_number = None
+    if include_eliminations:
+        game_state = get_game_state(game_id)
+        if game_state:
+            try:
+                elimination_round_number = int(game_state.get('round_number', 1))
+            except (TypeError, ValueError):
+                elimination_round_number = 1
     
     if transcript_type == "events":
         return jsonify(get_transcript(game_id, limit))
     elif transcript_type == "chat":
         return jsonify(get_chat_history(game_id, limit))
     else:  # type == "all" or default
-        return jsonify(get_full_transcript(game_id, limit))
+        return jsonify(
+            get_full_transcript(
+                game_id,
+                limit,
+                include_eliminations=include_eliminations,
+                elimination_round_number=elimination_round_number,
+            )
+        )
 
 
 # ---------------------------------------------------------------------

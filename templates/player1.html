@@ -50,6 +50,19 @@
         const chatInput = document.getElementById('chat-input');
         const socket = io();
 
+        function appendRoundCompleteMessage(message = 'Einde van de ronde') {
+            const hasMessage = Array.from(transcriptDiv.querySelectorAll('[data-round-complete-message]'))
+                .some(el => el.dataset.roundCompleteMessage === message);
+            if (hasMessage) return;
+            const div = document.createElement('div');
+            div.setAttribute('data-round-complete-message', message);
+            div.dataset.roundCompleteMessage = message;
+            div.style = 'text-align: center; margin: 10px 0; padding: 10px; background: #ffebee; border-radius: 4px;';
+            div.innerHTML = `<strong style="color: #d32f2f; font-size: 1.1em;"> ${message} </strong>`;
+            transcriptDiv.appendChild(div);
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        }
+
         socket.emit('join', {game_id: gameId, role: 'player1', participant_id: participantId});
 
         // Track seen joins by role to avoid duplicate join messages in UI
@@ -68,8 +81,8 @@
                             seenJoins.add(key);
                             appendMessage(`<em>${entry.role || 'System'} joined game ${entry.game_id}</em>`, 'color:gray;');
                         }
-                    } else if (entry.action === 'eliminate' && entry.card) {
-                        appendMessage(`<em>Eliminated card: ${entry.card}</em>`, 'color:red;');
+                    } else if (entry.action === 'round_complete') {
+                        appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
                     }
                 });
             })
@@ -194,8 +207,14 @@
                 const key = `${data.role}`;
                 if (seenJoins.has(key)) return;  // Already saw this role join
                 seenJoins.add(key);
+            } else {
+                return;
             }
             appendMessage(`<em>${data.role || 'System'} joined game ${data.game_id}</em>`, 'color:gray;');
+        });
+
+        socket.on('round_complete', data => {
+            appendRoundCompleteMessage(data?.message || 'Einde van de ronde');
         });
 
         socket.on('roles_swapped', data => {

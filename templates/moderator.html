@@ -104,6 +104,8 @@
                         }
                     } else if (entry.action === 'eliminate' && entry.card) {
                         appendMessage(`<em>Eliminated card: ${entry.card}</em>`, 'color:red;');
+                    } else if (entry.action === 'round_complete') {
+                        appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
                     }
                 });
                 checkEndOfGame();
@@ -182,7 +184,20 @@
             transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
         }
 
-        const endOfGameHighlighter = createEndOfGameHighlighter({appendMessage});
+        function appendRoundCompleteMessage(message = 'Einde van de ronde') {
+            const hasMessage = Array.from(transcriptDiv.querySelectorAll('[data-round-complete-message]'))
+                .some(el => el.dataset.roundCompleteMessage === message);
+            if (hasMessage) return;
+            const div = document.createElement('div');
+            div.setAttribute('data-round-complete-message', message);
+            div.dataset.roundCompleteMessage = message;
+            div.style = 'text-align: center; margin: 10px 0; padding: 10px; background: #ffebee; border-radius: 4px;';
+            div.innerHTML = `<strong style="color: #d32f2f; font-size: 1.1em;"> ${message} </strong>`;
+            transcriptDiv.appendChild(div);
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        }
+
+        const endOfGameHighlighter = createEndOfGameHighlighter({appendMessage, autoAppendMessage: false});
 
         function checkEndOfGame() {
             endOfGameHighlighter.checkEndOfGame();
@@ -211,6 +226,8 @@
                 const key = `${data.role}`;
                 if (seenJoins.has(key)) return;
                 seenJoins.add(key);
+            } else {
+                return;
             }
             appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;");
         });
@@ -218,6 +235,11 @@
             appendMessage(`<em>Eliminated card: ${data.card}</em>`, "color:red;");
             const cardEl = document.getElementById(`card${data.card}`);
             if (cardEl) cardEl.classList.add("eliminated");
+            setTimeout(checkEndOfGame, 100);
+        });
+
+        socket.on("round_complete", data => {
+            appendRoundCompleteMessage(data?.message || 'Einde van de ronde');
             setTimeout(checkEndOfGame, 100);
         });
 
