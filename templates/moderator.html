@@ -28,7 +28,6 @@
                 <div class="secret-card">
                     <img src="{{ url_for('static', filename='cards/' + secret_card.id|string + '.png') }}" alt="{{ secret_card.name }}"
                         class="secret-card-image">
-                    <p><strong>Secret Card:</strong> {{ secret_card.name }}</p>
                 </div>
                 {% else %}
                 <p style="color: #999;">Secret card not available.</p>
@@ -103,7 +102,8 @@
                             appendMessage(`<em>${entry.role || 'System'} joined game ${entry.game_id}</em>`, 'color:gray;');
                         }
                     } else if (entry.action === 'eliminate' && entry.card) {
-                        appendMessage(`<em>Eliminated card: ${entry.card}</em>`, 'color:red;');
+                        const label = entry.card_name || `Card ${entry.card}`;
+                        appendMessage(`<em>Eliminated card: ${label}</em>`, 'color:red;');
                     } else if (entry.action === 'round_complete') {
                         appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
                     }
@@ -232,7 +232,8 @@
             appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;");
         });
         socket.on("eliminate", data => {
-            appendMessage(`<em>Eliminated card: ${data.card}</em>`, "color:red;");
+            const label = data.card_name || `Card ${data.card}`;
+            appendMessage(`<em>Eliminated card: ${label}</em>`, "color:red;");
             const cardEl = document.getElementById(`card${data.card}`);
             if (cardEl) cardEl.classList.add("eliminated");
             setTimeout(checkEndOfGame, 100);
