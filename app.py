@@ -42,7 +42,7 @@ app.config.update(
     SECRET_KEY=SECRET_KEY,
     TEMPLATES_AUTO_RELOAD=True,
 )
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 MYSQL_CONFIG = {
     'host': os.getenv('MYSQL_HOST', 'localhost'),
@@ -1957,10 +1957,20 @@ def transcript():
             )
         )
 
-
 # ---------------------------------------------------------------------
-# Main entry
+# Main entry (Development only)
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     os.makedirs("db", exist_ok=True)
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    
+    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ("1", "true", "yes")
+    
+    print(f"Flask-SocketIO in {'DEBUG' if debug_mode else 'PRODUCTION'} mode")
+    
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5000,
+        debug=debug_mode,
+        use_reloader=debug_mode
+    )
