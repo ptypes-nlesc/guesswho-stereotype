@@ -57,7 +57,8 @@ MYSQL_CONFIG = {
 REDIS_CONFIG = {
     'host': os.getenv('REDIS_HOST', 'localhost'),
     'port': int(os.getenv('REDIS_PORT', 6379)),
-    'password': os.getenv('REDIS_PASSWORD'),
+    # Empty string should behave like "no password" to avoid AUTH errors.
+    'password': os.getenv('REDIS_PASSWORD') or None,
     'db': int(os.getenv('REDIS_DB', 0)),
     'decode_responses': True,  # Return strings instead of bytes
 }

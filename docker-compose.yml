@@ -10,17 +10,18 @@ services:
       - sh
       - -c
       - |
-        if [ -z "$REDIS_PASSWORD" ]; then
-          echo "REDIS_PASSWORD is required" >&2
-          exit 1
+        if [ -n "$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
         fi
-        exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
+        exec redis-server --appendonly yes
     volumes:
       - redis-data:/data
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - CMD-SHELL
+        - if [ -n "$REDIS_PASSWORD" ]; then redis-cli -a "$REDIS_PASSWORD" ping; else redis-cli ping; fi
       interval: 5s
       timeout: 3s
       retries: 5
