@@ -14,3 +14,5 @@ flask-testing==0.8.1
 PyMySQL==1.1.0
 redis==5.0.1
 gunicorn==25.3.0
+mkdocs==1.6.1
+mkdocs-material==9.5.39
