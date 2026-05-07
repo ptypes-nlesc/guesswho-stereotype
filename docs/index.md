@@ -25,6 +25,21 @@ GuessWho Stereotype (Xposed) is a Flask + Socket.IO application with:
 - Persistence: MySQL (games, rounds, chat, events, eliminations, tokens)
 - Realtime: Socket.IO and WebRTC signaling
 
+## Run with Gunicorn
+
+For a production-style local run, start the app through the Eventlet-enabled WSGI entrypoint:
+
+```bash
+gunicorn --worker-class eventlet -w 1 --bind 127.0.0.1:5000 --log-level info wsgi:app
+```
+
+Notes:
+
+- Run this from the project root after installing dependencies from `requirements.txt`.
+- `--worker-class eventlet` is required for WebSocket traffic to work correctly with Flask-SocketIO.
+- `--bind 127.0.0.1:5000` restricts the server to localhost; use a reverse proxy (Apache/nginx) to expose it externally.
+- Open `http://127.0.0.1:5000/` after the server starts.
+
 ## Notes
 
 - Token links are one-time use.
