@@ -42,7 +42,7 @@ app.config.update(
     SECRET_KEY=SECRET_KEY,
     TEMPLATES_AUTO_RELOAD=True,
 )
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 MYSQL_CONFIG = {
     'host': os.getenv('MYSQL_HOST', 'localhost'),
