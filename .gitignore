@@ -7,3 +7,4 @@ data/game_log.json
 nohup.out
 db/games.db
 site/
+README-dev.md
