@@ -9,6 +9,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      DB_ROOT_USER: root
+      DB_ROOT_PASSWORD: root
+      DB_HOST: localhost
+      DB_PORT: "3306"
+      DB_USER: xposed_user
+      DB_PWD: xposed_pass
+      DB_NAME: xposed_db
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -17,10 +25,11 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_USER: xposed_user
-          MYSQL_PASSWORD: xposed_pass
-          MYSQL_DATABASE: xposed_db
+          # MySQL image expects MYSQL_* names for container initialization.
+          MYSQL_ROOT_PASSWORD: ${{ env.DB_ROOT_PASSWORD }}
+          MYSQL_USER: ${{ env.DB_USER }}
+          MYSQL_PASSWORD: ${{ env.DB_PWD }}
+          MYSQL_DATABASE: ${{ env.DB_NAME }}
         options: >-
           --health-cmd="mysqladmin ping"
           --health-interval=10s
@@ -48,13 +57,13 @@ jobs:
         run: |
           echo "SECRET_KEY=test-secret-key-for-ci" > .env
           echo "MODERATOR_PASSWORD=test-password" >> .env
-          echo "MYSQL_ROOT_USER=root" >> .env
-          echo "MYSQL_ROOT_PASSWORD=root" >> .env
-          echo "MYSQL_HOST=localhost" >> .env
-          echo "MYSQL_PORT=3306" >> .env
-          echo "MYSQL_USER=xposed_user" >> .env
-          echo "MYSQL_PASSWORD=xposed_pass" >> .env
-          echo "MYSQL_DATABASE=xposed_db" >> .env
+          echo "DB_ROOT_USER=${DB_ROOT_USER}" >> .env
+          echo "DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}" >> .env
+          echo "DB_HOST=${DB_HOST}" >> .env
+          echo "DB_PORT=${DB_PORT}" >> .env
+          echo "DB_USER=${DB_USER}" >> .env
+          echo "DB_PWD=${DB_PWD}" >> .env
+          echo "DB_NAME=${DB_NAME}" >> .env
 
       - name: Run tests with pytest
         run: pytest tests/ -v --tb=short
