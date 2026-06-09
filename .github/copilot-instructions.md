@@ -155,11 +155,11 @@ pip install -r requirements.txt
 # Create .env file with required variables
 echo "SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')" > .env
 echo "MODERATOR_PASSWORD=your-secure-password" >> .env
-echo "MYSQL_HOST=localhost" >> .env
-echo "MYSQL_PORT=3306" >> .env
-echo "MYSQL_USER=your_user" >> .env
-echo "MYSQL_PASSWORD=your_password" >> .env
-echo "MYSQL_DATABASE=your_database" >> .env
+echo "DB_HOST=localhost" >> .env
+echo "DB_PORT=3306" >> .env
+echo "DB_USER=your_user" >> .env
+echo "DB_PWD=your_password" >> .env
+echo "DB_NAME=your_database" >> .env
 echo "REDIS_HOST=localhost" >> .env
 echo "REDIS_PORT=6379" >> .env
 echo "REDIS_DB=0" >> .env
