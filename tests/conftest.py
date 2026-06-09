@@ -9,12 +9,12 @@ os.environ['TESTING'] = '1'
 from dotenv import load_dotenv
 load_dotenv()
 
-# Set CI defaults for MySQL if not already set by .env
-os.environ.setdefault('MYSQL_HOST', 'localhost')
-os.environ.setdefault('MYSQL_PORT', '3306')
-os.environ.setdefault('MYSQL_USER', 'xposed_user')
-os.environ.setdefault('MYSQL_PASSWORD', 'xposed_pass')
-os.environ.setdefault('MYSQL_DATABASE', 'xposed_db')
+# Set CI defaults for DB config if not already set by .env
+os.environ.setdefault('DB_HOST', 'localhost')
+os.environ.setdefault('DB_PORT', '3306')
+os.environ.setdefault('DB_USER', 'xposed_user')
+os.environ.setdefault('DB_PWD', 'xposed_pass')
+os.environ.setdefault('DB_NAME', 'xposed_db')
 os.environ.setdefault('SECRET_KEY', 'test-secret-key')
 os.environ.setdefault('MODERATOR_PASSWORD', 'test-password')
 
@@ -32,21 +32,21 @@ def ensure_test_password():
 def test_db():
     """Setup test database - shared by all fixtures."""
     import app as app_module
-    original_mysql_config = dict(app_module.MYSQL_CONFIG)
+    original_db_config = dict(app_module.DB_CONFIG)
     test_database = 'xposed_db_test'
     
     # Use test database name
-    app_module.MYSQL_CONFIG['database'] = test_database
+    app_module.DB_CONFIG['database'] = test_database
     
-    admin_user = os.getenv('MYSQL_ROOT_USER', 'root')
-    admin_password = os.getenv('MYSQL_ROOT_PASSWORD')
+    admin_user = os.getenv('DB_ROOT_USER', 'root')
+    admin_password = os.getenv('DB_ROOT_PASSWORD')
     admin_conn_user = None
 
     # Create test database using admin credentials (required for CREATE/DROP)
     try:
         admin_conn = pymysql.connect(
-            host=original_mysql_config['host'],
-            port=original_mysql_config['port'],
+            host=original_db_config['host'],
+            port=original_db_config['port'],
             user=admin_user,
             password=admin_password,
             charset='utf8mb4'
@@ -59,16 +59,16 @@ def test_db():
     if admin_conn is None:
         try:
             admin_conn = pymysql.connect(
-                host=original_mysql_config['host'],
-                port=original_mysql_config['port'],
-                user=original_mysql_config['user'],
-                password=original_mysql_config['password'],
+                host=original_db_config['host'],
+                port=original_db_config['port'],
+                user=original_db_config['user'],
+                password=original_db_config['password'],
                 charset='utf8mb4'
             )
-            admin_conn_user = original_mysql_config['user']
+            admin_conn_user = original_db_config['user']
         except pymysql.err.OperationalError as exc:
             raise RuntimeError(
-                "Test DB setup failed. Set MYSQL_ROOT_PASSWORD (and optional MYSQL_ROOT_USER) "
+                "Test DB setup failed. Set DB_ROOT_PASSWORD (and optional DB_ROOT_USER) "
                 "so tests can create/drop the test database."
             ) from exc
 
@@ -76,11 +76,11 @@ def test_db():
     cursor.execute(f"DROP DATABASE IF EXISTS {test_database}")
     cursor.execute(f"CREATE DATABASE {test_database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
 
-    if admin_conn_user != original_mysql_config['user']:
+    if admin_conn_user != original_db_config['user']:
         # Grant permissions to app user on test database
         cursor.execute(
             f"GRANT ALL PRIVILEGES ON {test_database}.* TO %s@'%%'",
-            (original_mysql_config['user'],)
+            (original_db_config['user'],)
         )
         cursor.execute("FLUSH PRIVILEGES")
 
@@ -95,22 +95,22 @@ def test_db():
     yield
     
     # Cleanup: drop test database using admin credentials, fallback to app user
-    admin_user = os.getenv('MYSQL_ROOT_USER', 'root')
-    admin_password = os.getenv('MYSQL_ROOT_PASSWORD')
+    admin_user = os.getenv('DB_ROOT_USER', 'root')
+    admin_password = os.getenv('DB_ROOT_PASSWORD')
     try:
         admin_conn = pymysql.connect(
-            host=original_mysql_config['host'],
-            port=original_mysql_config['port'],
+            host=original_db_config['host'],
+            port=original_db_config['port'],
             user=admin_user,
             password=admin_password,
             charset='utf8mb4'
         )
     except pymysql.err.OperationalError:
         admin_conn = pymysql.connect(
-            host=original_mysql_config['host'],
-            port=original_mysql_config['port'],
-            user=original_mysql_config['user'],
-            password=original_mysql_config['password'],
+            host=original_db_config['host'],
+            port=original_db_config['port'],
+            user=original_db_config['user'],
+            password=original_db_config['password'],
             charset='utf8mb4'
         )
 
@@ -120,7 +120,7 @@ def test_db():
     cursor.close()
     admin_conn.close()
     
-    app_module.MYSQL_CONFIG.update(original_mysql_config)
+    app_module.DB_CONFIG.update(original_db_config)
 
 @pytest.fixture
 def client(test_db):

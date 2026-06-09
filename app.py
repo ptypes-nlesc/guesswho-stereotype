@@ -9,6 +9,7 @@ import pymysql
 import time
 import uuid
 from contextlib import contextmanager
+from urllib.parse import unquote, urlparse
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -30,6 +31,62 @@ load_dotenv()
 # ---------------------------------------------------------------------
 app = Flask(__name__)
 
+
+def env_first(*keys, default=None):
+    """Return the first non-empty environment variable among keys."""
+    for key in keys:
+        value = os.getenv(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def _int_or_default(value, default):
+    """Safely parse int-like env values with fallback."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _db_config_from_env():
+    """Build DB config from DATABASE_URL and DB_* env keys."""
+    config = {
+        'host': env_first('DB_HOST', default='localhost'),
+        'port': _int_or_default(env_first('DB_PORT', default='3306'), 3306),
+        'user': env_first('DB_USER'),
+        'password': env_first('DB_PWD'),
+        'database': env_first('DB_NAME'),
+        'charset': 'utf8mb4',
+        'cursorclass': pymysql.cursors.DictCursor
+    }
+
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        return config
+
+    try:
+        parsed = urlparse(database_url)
+    except Exception:
+        return config
+
+    if parsed.scheme not in ('mysql', 'mysql+pymysql'):
+        return config
+
+    # DATABASE_URL takes precedence when provided.
+    if parsed.hostname:
+        config['host'] = parsed.hostname
+    if parsed.port:
+        config['port'] = parsed.port
+    if parsed.username:
+        config['user'] = unquote(parsed.username)
+    if parsed.password:
+        config['password'] = unquote(parsed.password)
+    if parsed.path and parsed.path != '/':
+        config['database'] = parsed.path.lstrip('/')
+
+    return config
+
 # Validate required environment variables
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
@@ -40,19 +97,12 @@ if not SECRET_KEY:
 
 app.config.update(
     SECRET_KEY=SECRET_KEY,
+    APP_NAME=env_first("APP_NAME", default="guesswho-stereotype"),
     TEMPLATES_AUTO_RELOAD=True,
 )
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
-MYSQL_CONFIG = {
-    'host': os.getenv('MYSQL_HOST', 'localhost'),
-    'port': int(os.getenv('MYSQL_PORT', 3306)),
-    'user': os.getenv('MYSQL_USER'),
-    'password': os.getenv('MYSQL_PASSWORD'),
-    'database': os.getenv('MYSQL_DATABASE'),
-    'charset': 'utf8mb4',
-    'cursorclass': pymysql.cursors.DictCursor
-}
+DB_CONFIG = _db_config_from_env()
 
 REDIS_CONFIG = {
     'host': os.getenv('REDIS_HOST', 'localhost'),
@@ -77,10 +127,10 @@ if not IS_TESTING:
         )
 
     # Validate MySQL configuration
-    if not all([MYSQL_CONFIG['user'], MYSQL_CONFIG['password'], MYSQL_CONFIG['database']]):
+    if not all([DB_CONFIG['user'], DB_CONFIG['password'], DB_CONFIG['database']]):
         raise ValueError(
-            "MySQL configuration incomplete. "
-            "Please set MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in .env"
+            "Database configuration incomplete. "
+            "Please set DATABASE_URL or DB_USER/DB_PWD/DB_NAME in .env"
         )
 
 # Initialize Redis client
@@ -97,7 +147,7 @@ except Exception as e:
 @contextmanager
 def get_db_conn():
     """Get MySQL connection with context manager."""
-    conn = pymysql.connect(**MYSQL_CONFIG)
+    conn = pymysql.connect(**DB_CONFIG)
     try:
         yield conn
         conn.commit()
@@ -1698,8 +1748,14 @@ def moderator_generate_tokens():
     csv_writer = csv.writer(output)
     csv_writer.writerow(['join_url'])
     
-    # Use request.host_url to get the base URL
-    base_url = request.host_url.rstrip('/')
+    # Prefer APP_URL for externally shared links (e.g., reverse proxy/public domain).
+    configured_app_url = env_first("APP_URL")
+    if configured_app_url:
+        if "://" not in configured_app_url:
+            configured_app_url = f"https://{configured_app_url}"
+        base_url = configured_app_url.rstrip('/')
+    else:
+        base_url = request.host_url.rstrip('/')
     for token in tokens:
         join_url = f"{base_url}/join?token={token}"
         csv_writer.writerow([join_url])
@@ -1965,13 +2021,14 @@ if __name__ == "__main__":
     os.makedirs("db", exist_ok=True)
     
     debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ("1", "true", "yes")
+    app_port = _int_or_default(env_first("APP_PORT", default="5000"), 5000)
     
     print(f"Flask-SocketIO in {'DEBUG' if debug_mode else 'PRODUCTION'} mode")
     
     socketio.run(
         app,
         host="0.0.0.0",
-        port=5000,
+        port=app_port,
         debug=debug_mode,
         use_reloader=debug_mode
     )
