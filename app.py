@@ -11,6 +11,7 @@ import uuid
 from contextlib import contextmanager
 from urllib.parse import unquote, urlparse
 from dotenv import load_dotenv
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import (
     Flask,
     jsonify,
@@ -30,6 +31,10 @@ load_dotenv()
 # App setup
 # ---------------------------------------------------------------------
 app = Flask(__name__)
+
+# ProxyFix middleware for reverse proxy (Apache, nginx, etc.)
+# Handles X-Forwarded-* headers to correctly identify client IP and protocol
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 
 def env_first(*keys, default=None):
