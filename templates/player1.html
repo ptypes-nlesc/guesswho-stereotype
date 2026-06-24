@@ -90,6 +90,7 @@
             .catch(err => console.error('Failed to load transcript:', err));
 
         // --- Game Status Polling -----------------------------------------------
+        let voice = null;
         let gameEnded = false;
         let consecutiveEndStateChecks = 0;
         const END_STATE_CONFIRMATION_THRESHOLD = 3;
@@ -112,6 +113,7 @@
 
                     if (!gameEnded) {
                         gameEnded = true;
+                        if (voice) voice.stopVoice();
                         // Disable interactions
                         document.getElementById('chat-input').disabled = true;
                         document.getElementById('send-btn').disabled = true;
@@ -227,7 +229,7 @@
         // Player 1 does not receive elimination messages - only moderator and player2 should see them
 
         // --- Voice (WebRTC) -------------------------------------------
-        const voice = setupVoice({
+        voice = setupVoice({
             socket,
             gameId,
             role: 'player1',
@@ -238,6 +240,13 @@
         if (MicCheck.isMicReady()) {
             voice.startVoice();
         }
+
+        socket.on('recording_start', (data) => {
+            console.log('[Recording] started', data);
+        });
+        socket.on('recording_stop', (data) => {
+            console.log('[Recording] stopped', data);
+        });
     </script>
 </body>
 

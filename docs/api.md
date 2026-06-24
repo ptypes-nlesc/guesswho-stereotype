@@ -88,6 +88,16 @@ This page summarizes HTTP routes and Socket.IO events exposed by the application
 - POST /moderator/control/reset
   - Resets current session to CLOSED.
 
+- POST /moderator/control/recording/start
+  - Starts a recording session while game state is IN_PROGRESS.
+  - Broadcasts recording_start to room game:{game_id}.
+  - Response includes recording_id and server_ts (UTC ISO-8601).
+
+- POST /moderator/control/recording/stop
+  - Stops the active recording session.
+  - Broadcasts recording_stop to room game:{game_id}.
+  - Idempotent when no recording is active (returns ok).
+
 - POST /moderator/tokens/generate
   - Body: {"count": 1..100}
   - Returns CSV file with tokenized join links.
@@ -129,6 +139,13 @@ This page summarizes HTTP routes and Socket.IO events exposed by the application
 - eliminate
 - round_complete
 - roles_swapped
+- recording_start
+  - Payload: {"game_id", "recording_id", "server_ts"}
+- recording_stop
+  - Payload: {"game_id", "recording_id", "server_ts"}
+- game_ended
+  - Payload: {"game_id", "state"}
+  - Clients should leave voice when received.
 
 ## State Model
 
