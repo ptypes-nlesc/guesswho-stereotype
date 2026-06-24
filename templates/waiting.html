@@ -67,7 +67,53 @@
             background: #ccc;
             cursor: not-allowed;
         }
+        .mic-check-section {
+            margin-top: 24px;
+            padding: 20px;
+            background: #f5f7fa;
+            border-radius: 8px;
+            text-align: left;
+        }
+        .mic-check-section h4 {
+            margin: 0 0 8px 0;
+            text-align: center;
+        }
+        .mic-check-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            font-size: 1em;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .mic-check-btn:disabled {
+            background: #90caf9;
+            cursor: wait;
+        }
+        .mic-level {
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            margin-top: 12px;
+            overflow: hidden;
+        }
+        .mic-level-bar {
+            height: 100%;
+            width: 0%;
+            background: #4CAF50;
+            transition: width 0.08s linear;
+        }
+        #mic-check-status {
+            display: block;
+            margin-top: 10px;
+            font-size: 0.95em;
+            text-align: center;
+        }
     </style>
+    <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
 </head>
 
 <body>
@@ -89,6 +135,18 @@
         </div>
 
         <button id="join-btn" class="join-btn" style="display: none;">Start het spel</button>
+
+        <div id="mic-check-section" class="mic-check-section" style="display: none;">
+            <h4>🎙️ Microfoon instellen</h4>
+            <p style="margin: 0; font-size: 0.95em; color: #555; text-align: center;">
+                Test je microfoon voordat het spel begint. Spraak start automatisch zodra de moderator het spel start.
+            </p>
+            <button id="mic-check-btn" class="mic-check-btn" type="button">Microfoon testen</button>
+            <div class="mic-level" aria-hidden="true">
+                <div id="mic-level-bar" class="mic-level-bar"></div>
+            </div>
+            <span id="mic-check-status"></span>
+        </div>
         {% endif %}
     </div>
 
@@ -98,6 +156,28 @@
         let participantId = "{{ participant_id if participant_id else '' }}" || localStorage.getItem('participant_id');
         let checkInterval;
         let hasJoined = false;
+
+        const micCheckSection = document.getElementById('mic-check-section');
+        const micMessages = {
+            idle: 'Nog niet gecontroleerd',
+            checking: 'Microfoontoegang aanvragen…',
+            speak: 'Spreek nu — de balk zou moeten bewegen',
+            ok: 'Microfoon klaar',
+            blocked: 'Microfoon geblokkeerd. Sta toegang toe in je browser.',
+            error: 'Microfoontest mislukt. Probeer opnieuw.',
+        };
+
+        function showMicCheckSection() {
+            if (!micCheckSection) return;
+            micCheckSection.style.display = 'block';
+            MicCheck.bindMicCheckButton({
+                buttonEl: document.getElementById('mic-check-btn'),
+                statusEl: document.getElementById('mic-check-status'),
+                levelEl: document.getElementById('mic-level-bar'),
+                messages: micMessages,
+                successLabel: 'Microfoon opnieuw testen',
+            });
+        }
 
         async function checkStatus() {
             try {
@@ -143,6 +223,7 @@
                         <div class="spinner"></div>
                     `;
                     joinBtn.style.display = 'none';
+                    if (participantId) showMicCheckSection();
                 } else if (data.status === 'closed') {
                     display.innerHTML = `
                         <div class="status-message status-closed">
@@ -199,6 +280,7 @@
                         <p>Nog ${2 - data.waiting_count} deelmenemer(s) nodig </p>
                     `;
                     joinBtn.style.display = 'none';
+                    showMicCheckSection();
                 } else if (data.status === 'in_game') {
                     // Token already used and participant in game
                     participantId = data.participant_id;
