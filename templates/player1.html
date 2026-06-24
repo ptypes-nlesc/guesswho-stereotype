@@ -6,6 +6,7 @@
     <title>Speler 1 – Geheime Kaart</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
     <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
 </head>
 
@@ -226,7 +227,7 @@
         // Player 1 does not receive elimination messages - only moderator and player2 should see them
 
         // --- Voice (WebRTC) -------------------------------------------
-        setupVoice({
+        const voice = setupVoice({
             socket,
             gameId,
             role: 'player1',
@@ -234,6 +235,9 @@
             statusEl: document.getElementById('voice-status'),
             remoteAudioEl: document.getElementById('remote-audio')
         });
+        if (MicCheck.isMicReady()) {
+            voice.startVoice();
+        }
     </script>
 </body>
 

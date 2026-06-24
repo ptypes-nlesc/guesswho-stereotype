@@ -147,7 +147,36 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .mic-check-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            font-size: 1em;
+            border-radius: 5px;
+            cursor: pointer;
+            min-width: 180px;
+        }
+        .mic-check-btn:disabled {
+            background: #90caf9;
+            cursor: wait;
+        }
+        .mic-level {
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            margin-top: 12px;
+            overflow: hidden;
+            max-width: 320px;
+        }
+        .mic-level-bar {
+            height: 100%;
+            width: 0%;
+            background: #4CAF50;
+            transition: width 0.08s linear;
+        }
     </style>
+    <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
 </head>
 
 <body>
@@ -168,6 +197,16 @@
             <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
             <button id="btn-swap" class="control-btn btn-start">🔁 Swap Roles</button>
             <button id="btn-end" class="control-btn btn-end">⏹️ End Game</button>
+        </div>
+
+        <div class="info-section">
+            <h3>🎙️ Microphone Setup</h3>
+            <p>Check your microphone before the session. Voice will connect automatically when you open the moderator view after starting the game.</p>
+            <button id="mic-check-btn" class="mic-check-btn" type="button">Check microphone</button>
+            <div class="mic-level" aria-hidden="true">
+                <div id="mic-level-bar" class="mic-level-bar"></div>
+            </div>
+            <p id="mic-check-status" style="margin-top: 10px; color: #555;"></p>
         </div>
 
         <div class="info-section">
@@ -413,6 +452,21 @@
                 alert('Error: ' + err.message);
             }
         };
+
+        MicCheck.bindMicCheckButton({
+            buttonEl: document.getElementById('mic-check-btn'),
+            statusEl: document.getElementById('mic-check-status'),
+            levelEl: document.getElementById('mic-level-bar'),
+            messages: {
+                idle: 'Not checked yet',
+                checking: 'Requesting microphone access…',
+                speak: 'Speak now — the bar should move',
+                ok: 'Microphone ready',
+                blocked: 'Microphone blocked. Allow access in browser settings.',
+                error: 'Microphone check failed. Try again.',
+            },
+            successLabel: 'Check again',
+        });
 
         updateStatus();
         setInterval(updateStatus, 2000);
