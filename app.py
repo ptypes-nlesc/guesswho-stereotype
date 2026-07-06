@@ -235,9 +235,15 @@ def get_game_state(game_id):
             except (TypeError, ValueError):
                 data['round_number'] = 1
         # Convert "null" sentinels back to None
-        for key in ['player1_id', 'player2_id']:
+        for key in ['player1_id', 'player2_id', 'recording_id']:
             if key in data and data[key] == "null":
                 data[key] = None
+        if 'recording_active' in data:
+            value = data['recording_active']
+            if isinstance(value, str):
+                data['recording_active'] = value.lower() in ('true', '1', 'yes')
+            else:
+                data['recording_active'] = bool(value)
         return data
     except Exception as e:
         print(f"Error getting game state: {e}")
@@ -378,6 +384,17 @@ def remove_voice_participant(game_id, client_id):
         get_redis().hdel(f"voice:{game_id}", client_id)
     except Exception as e:
         print(f"Error removing voice participant: {e}")
+
+
+def clear_voice_participants(game_id):
+    """Remove all voice participants for a game."""
+    VOICE_PARTICIPANTS.pop(game_id, None)
+    if not get_redis():
+        return
+    try:
+        get_redis().delete(f"voice:{game_id}")
+    except Exception as e:
+        print(f"Error clearing voice participants: {e}")
 
 # CURRENT_SESSION_GAME_ID helper
 def get_current_session_game_id():
@@ -1389,6 +1406,47 @@ def join_enter():
     })
 
 
+def _utc_iso_timestamp():
+    """Return current UTC time as ISO-8601 string with Z suffix."""
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+def _resolve_moderator_game_context():
+    """Return (game_id, game_state) for the moderator's active session."""
+    moderator_game_id = session.get("moderator_session_game_id")
+    if not moderator_game_id:
+        moderator_game_id = get_current_session_game_id()
+        if moderator_game_id:
+            session["moderator_session_game_id"] = moderator_game_id
+    if not moderator_game_id:
+        return None, None
+    game_state = get_game_state(moderator_game_id)
+    if not game_state:
+        return None, None
+    return moderator_game_id, game_state
+
+
+def _stop_active_recording(game_id, game_state, reason="moderator_stop"):
+    """Stop an active recording and broadcast recording_stop. Returns payload or None."""
+    if not game_state.get("recording_active"):
+        return None
+
+    recording_id = game_state.get("recording_id")
+    server_ts = _utc_iso_timestamp()
+    game_state["recording_active"] = False
+    set_game_state(game_id, game_state)
+
+    payload = {
+        "game_id": game_id,
+        "recording_id": recording_id,
+        "server_ts": server_ts,
+    }
+    socketio.emit("recording_stop", payload, to=f"game:{game_id}")
+    record_event("system", "recording_stop", game_id, text=reason)
+    print(f"⏹️ Recording stopped for game {game_id} ({recording_id})")
+    return payload
+
+
 @app.route("/moderator/control")
 def moderator_control():
     """Moderator control panel."""
@@ -1439,7 +1497,9 @@ def moderator_control_status():
         "can_swap_roles": game_state.get('state') == 'IN_PROGRESS' and round_number == 1,
         "waiting_count": len(game_state.get('waiting_participants', [])),
         "player1_id": game_state.get('player1_id'),
-        "player2_id": game_state.get('player2_id')
+        "player2_id": game_state.get('player2_id'),
+        "recording_active": bool(game_state.get("recording_active")),
+        "recording_id": game_state.get("recording_id") if game_state.get("recording_active") else None,
     })
 
 
@@ -1484,7 +1544,9 @@ def moderator_open_entry():
             'player1_id': None,
             'player2_id': None,
             'round_number': 1,
-            'round_phase': 'ACTIVE'
+            'round_phase': 'ACTIVE',
+            'recording_active': False,
+            'recording_id': None,
         })
         
         # Update the global for participant joins
@@ -1586,10 +1648,18 @@ def moderator_end_game():
     if game_state.get('state') == 'CLOSED':
         return jsonify({"status": "error", "message": "No active session"}), 400
 
+    _stop_active_recording(moderator_game_id, game_state, reason="game_ended")
+
     close_round(moderator_game_id)
     game_state['state'] = 'ENDED'
     set_game_state(moderator_game_id, game_state)
-    
+    clear_voice_participants(moderator_game_id)
+
+    socketio.emit(
+        "game_ended",
+        {"game_id": moderator_game_id, "state": "ENDED"},
+        to=f"game:{moderator_game_id}",
+    )
     record_event("system", "game_ended", moderator_game_id)
     print(f"🏁 Ended game {moderator_game_id}")
     
@@ -1717,6 +1787,81 @@ def moderator_reset_session():
     print(f"🔄 Reset session {moderator_game_id}")
     
     return jsonify({"status": "ok"})
+
+
+@app.route("/moderator/control/recording/start", methods=["POST"])
+def moderator_recording_start():
+    """Start a moderator-controlled recording session for the active game."""
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    moderator_game_id, game_state = _resolve_moderator_game_context()
+    if not moderator_game_id or not game_state:
+        return jsonify({"status": "error", "message": "No active session"}), 400
+
+    if game_state.get("state") != "IN_PROGRESS":
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot start recording in state: {game_state.get('state')}",
+        }), 400
+
+    if game_state.get("recording_active"):
+        return jsonify({"status": "error", "message": "Recording already active"}), 400
+
+    recording_id = uuid.uuid4().hex
+    server_ts = _utc_iso_timestamp()
+    game_state["recording_active"] = True
+    game_state["recording_id"] = recording_id
+    set_game_state(moderator_game_id, game_state)
+
+    payload = {
+        "game_id": moderator_game_id,
+        "recording_id": recording_id,
+        "server_ts": server_ts,
+    }
+    socketio.emit("recording_start", payload, to=f"game:{moderator_game_id}")
+    record_event(
+        "system",
+        "recording_start",
+        moderator_game_id,
+        text=f"recording_id={recording_id}",
+    )
+    print(f"⏺️ Recording started for game {moderator_game_id} ({recording_id})")
+
+    return jsonify({
+        "status": "ok",
+        "game_id": moderator_game_id,
+        "recording_id": recording_id,
+        "server_ts": server_ts,
+    })
+
+
+@app.route("/moderator/control/recording/stop", methods=["POST"])
+def moderator_recording_stop():
+    """Stop the active recording session for the current game."""
+    if not session.get("moderator"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    moderator_game_id, game_state = _resolve_moderator_game_context()
+    if not moderator_game_id or not game_state:
+        return jsonify({"status": "error", "message": "No active session"}), 400
+
+    if game_state.get("state") != "IN_PROGRESS":
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot stop recording in state: {game_state.get('state')}",
+        }), 400
+
+    if not game_state.get("recording_active"):
+        return jsonify({"status": "ok", "message": "No active recording"})
+
+    payload = _stop_active_recording(moderator_game_id, game_state, reason="moderator_stop")
+    return jsonify({
+        "status": "ok",
+        "game_id": moderator_game_id,
+        "recording_id": payload.get("recording_id") if payload else None,
+        "server_ts": payload.get("server_ts") if payload else None,
+    })
 
 
 @app.route("/moderator/tokens/generate", methods=["POST"])

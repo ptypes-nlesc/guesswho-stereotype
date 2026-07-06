@@ -86,6 +86,42 @@
         .btn-reset:hover:not(:disabled) {
             background: #757575;
         }
+        .btn-record-start {
+            background: #c62828;
+            color: white;
+        }
+        .btn-record-start:hover:not(:disabled) {
+            background: #b71c1c;
+        }
+        .btn-record-stop {
+            background: #6a1b9a;
+            color: white;
+        }
+        .btn-record-stop:hover:not(:disabled) {
+            background: #4a148c;
+        }
+        .recording-badge {
+            display: inline-block;
+            margin-left: 10px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #ffebee;
+            color: #c62828;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .recording-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            flex: 1;
+            min-width: 150px;
+        }
+        .recording-controls .control-btn {
+            flex: 1;
+            width: 100%;
+            min-height: 52px;
+        }
         .info-section {
             background: white;
             padding: 20px;
@@ -197,6 +233,10 @@
             <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
             <button id="btn-swap" class="control-btn btn-start">🔁 Swap Roles</button>
             <button id="btn-end" class="control-btn btn-end">⏹️ End Game</button>
+            <div class="recording-controls">
+                <button id="btn-record-start" class="control-btn btn-record-start">⏺️ Start Recording</button>
+                <button id="btn-record-stop" class="control-btn btn-record-stop">⏹️ Stop Recording</button>
+            </div>
         </div>
 
         <div class="info-section">
@@ -284,7 +324,11 @@
                     } else if (data.state === 'READY') {
                         statusHtml += `<p>⏳ 2 participants ready - Click "Start Game" to begin</p>`;
                     } else if (data.state === 'IN_PROGRESS') {
-                        statusHtml += `<p>🎮 Game in progress (Round ${data.round_number || 1})</p>`;
+                        statusHtml += `<p>🎮 Game in progress (Round ${data.round_number || 1})`;
+                        if (data.recording_active) {
+                            statusHtml += `<span class="recording-badge">⏺ REC</span>`;
+                        }
+                        statusHtml += `</p>`;
                     } else if (data.state === 'ENDED') {
                         statusHtml += `<p>🏁 Game ended - Click "Open Entry" to start a new session</p>`;
                     }
@@ -337,11 +381,15 @@
             const btnStart = document.getElementById('btn-start');
             const btnSwap = document.getElementById('btn-swap');
             const btnEnd = document.getElementById('btn-end');
+            const btnRecordStart = document.getElementById('btn-record-start');
+            const btnRecordStop = document.getElementById('btn-record-stop');
 
             btnOpen.disabled = true;
             btnStart.disabled = true;
             btnSwap.disabled = true;
             btnEnd.disabled = true;
+            btnRecordStart.disabled = true;
+            btnRecordStop.disabled = true;
 
             if (state === 'NO_SESSION' || state === 'CLOSED' || state === 'ENDED') {
                 btnOpen.disabled = false;
@@ -354,6 +402,13 @@
             }
             if (state === 'OPEN' || state === 'READY' || state === 'IN_PROGRESS') {
                 btnEnd.disabled = false;
+            }
+            if (state === 'IN_PROGRESS') {
+                if (statusData?.recording_active) {
+                    btnRecordStop.disabled = false;
+                } else {
+                    btnRecordStart.disabled = false;
+                }
             }
         }
 
@@ -395,6 +450,34 @@
                     alert('✅ Roles swapped. Round 2 started.');
                 } else {
                     alert('Failed to swap roles: ' + (data.message || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('btn-record-start').onclick = async () => {
+            try {
+                const res = await fetch('/moderator/control/recording/start', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    updateStatus();
+                } else {
+                    alert('Failed to start recording: ' + (data.message || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('btn-record-stop').onclick = async () => {
+            try {
+                const res = await fetch('/moderator/control/recording/stop', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    updateStatus();
+                } else {
+                    alert('Failed to stop recording: ' + (data.message || 'Unknown error'));
                 }
             } catch (err) {
                 alert('Error: ' + err.message);

@@ -340,6 +340,11 @@
     // Socket event: receive WebRTC signal from peer
     socket.on("webrtc_signal", handleIncomingSignal);
 
+    socket.on("game_ended", (data) => {
+      if (!data || data.game_id !== gameId) return;
+      stopVoice();
+    });
+
     setStatus("idle");
     setButton(false);
 
