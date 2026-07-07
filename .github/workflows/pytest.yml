@@ -57,6 +57,7 @@ jobs:
         run: |
           echo "SECRET_KEY=test-secret-key-for-ci" > .env
           echo "MODERATOR_PASSWORD=test-password" >> .env
+          echo "AUDITOR_PASSWORD=test-auditor-password" >> .env
           echo "DB_ROOT_USER=${DB_ROOT_USER}" >> .env
           echo "DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}" >> .env
           echo "DB_HOST=${DB_HOST}" >> .env

@@ -17,6 +17,7 @@ os.environ.setdefault('DB_PWD', 'xposed_pass')
 os.environ.setdefault('DB_NAME', 'xposed_db')
 os.environ.setdefault('SECRET_KEY', 'test-secret-key')
 os.environ.setdefault('MODERATOR_PASSWORD', 'test-password')
+os.environ.setdefault('AUDITOR_PASSWORD', 'test-auditor-password')
 
 from app import app, socketio, init_db
 
@@ -25,6 +26,7 @@ def ensure_test_password():
     """Ensure MODERATOR_PASSWORD is set to test value for all tests."""
     import app as app_module
     app_module.MODERATOR_PASSWORD = "test-password"
+    app_module.AUDITOR_PASSWORD = "test-auditor-password"
     yield
     # Restore after test (optional, but good practice)
 
@@ -131,45 +133,35 @@ def client(test_db):
     with app.test_client() as client:
         yield client
 
+def _reset_app_globals(app_module):
+    """Clear Redis and in-memory runtime state."""
+    if app_module.get_redis():
+        try:
+            redis_client = app_module.get_redis()
+            for key in redis_client.keys("game:*:state"):
+                redis_client.delete(key)
+            for key in redis_client.keys("roles:*"):
+                redis_client.delete(key)
+            for key in redis_client.keys("voice:*"):
+                redis_client.delete(key)
+            redis_client.delete("current_session_game_id")
+        except Exception as e:
+            print(f"Warning: Could not reset Redis: {e}")
+
+    app_module.GAME_STATES.clear()
+    app_module.CURRENT_SESSION_GAME_ID = None
+    app_module.PARTICIPANT_ROLES.clear()
+    app_module.VOICE_PARTICIPANTS.clear()
+
+
 @pytest.fixture
 def reset_globals():
     """Reset Redis and in-memory state between tests."""
     import app as app_module
-    
-    # Store originals for in-memory fallback
-    original_game_states = dict(app_module.GAME_STATES)
-    original_session_game_id = app_module.CURRENT_SESSION_GAME_ID
-    original_participant_roles = dict(app_module.PARTICIPANT_ROLES)
-    original_voice_participants = dict(app_module.VOICE_PARTICIPANTS)
-    
+
+    _reset_app_globals(app_module)
     yield
-    
-    # Reset Redis state if Redis is available
-    if app_module.get_redis():
-        try:
-            redis_client = app_module.get_redis()
-            # Clear all game state keys
-            for key in redis_client.keys("game:*:state"):
-                redis_client.delete(key)
-            # Clear all role keys
-            for key in redis_client.keys("roles:*"):
-                redis_client.delete(key)
-            # Clear all voice keys
-            for key in redis_client.keys("voice:*"):
-                redis_client.delete(key)
-            # Clear current session
-            redis_client.delete("current_session_game_id")
-        except Exception as e:
-            print(f"Warning: Could not reset Redis: {e}")
-    
-    # Reset in-memory fallback dicts
-    app_module.GAME_STATES.clear()
-    app_module.GAME_STATES.update(original_game_states)
-    app_module.CURRENT_SESSION_GAME_ID = original_session_game_id
-    app_module.PARTICIPANT_ROLES.clear()
-    app_module.PARTICIPANT_ROLES.update(original_participant_roles)
-    app_module.VOICE_PARTICIPANTS.clear()
-    app_module.VOICE_PARTICIPANTS.update(original_voice_participants)
+    _reset_app_globals(app_module)
 
 @pytest.fixture
 def socketio_client(test_db):

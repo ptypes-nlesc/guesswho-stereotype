@@ -221,13 +221,20 @@
     </header>
 
     <div class="control-panel">
-        <h1>🎮 Game Control Panel</h1>
+        <h1>{% if staff_role == 'auditor' %}👁️ Session Observer{% else %}🎮 Game Control Panel{% endif %}</h1>
+
+        {% if staff_role == 'auditor' %}
+        <div class="info-section" style="background:#fff8e1; border-color:#ffcc80;">
+            <strong>Read-only auditor mode.</strong> You can monitor the active session but cannot change game state, generate tokens, or send messages.
+        </div>
+        {% endif %}
 
         <div class="state-display" id="state-display">
             <h2>Current Status <div class="spinner"></div></h2>
             <div id="status-content">Loading...</div>
         </div>
 
+        {% if staff_role != 'auditor' %}
         <div class="control-buttons">
             <button id="btn-open" class="control-btn btn-open">🔓 Open Entry</button>
             <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
@@ -276,6 +283,7 @@
                 Tokens are single-use and include a unique join URL. Download as CSV for distribution.
             </small>
         </div>
+        {% endif %}
 
         <div class="info-section" id="participant-section" style="display: none;">
             <h3>👥 Participants</h3>
@@ -288,7 +296,7 @@
         </div>
 
         <div class="footer">
-            <p>You are logged in as <strong>Moderator</strong>.</p>
+            <p>You are logged in as <strong>{{ 'Auditor (read-only)' if staff_role == 'auditor' else 'Moderator' }}</strong>.</p>
             <form action="/logout" method="get" style="display: inline;">
                 <button type="submit">🔒 Logout</button>
             </form>
@@ -296,6 +304,7 @@
     </div>
 
     <script>
+        const staffRole = {{ staff_role|tojson }};
         let currentState = null;
         let currentGameId = null;
 
@@ -305,11 +314,16 @@
                 const data = await res.json();
 
                 if (data.status === 'no_session') {
+                    const noSessionMessage = staffRole === 'auditor'
+                        ? 'No active session to observe. Wait for a moderator to open entry.'
+                        : 'Click "Open Entry" to create a new session';
                     document.getElementById('status-content').innerHTML = `
                         <div class="state-badge state-CLOSED">NO SESSION</div>
-                        <p>Click "Open Entry" to create a new session</p>
+                        <p>${noSessionMessage}</p>
                     `;
-                    updateButtons({ state: 'NO_SESSION', round_number: 1, can_swap_roles: false });
+                    if (staffRole !== 'auditor') {
+                        updateButtons({ state: 'NO_SESSION', round_number: 1, can_swap_roles: false });
+                    }
                 } else if (data.status === 'ok') {
                     currentState = data.state;
                     currentGameId = data.game_id;
@@ -359,16 +373,22 @@
                         gameLinksSection.style.display = 'block';
                         
                         const gameLinks = document.getElementById('game-links');
-                        gameLinks.innerHTML = `
+                        const observerLabel = staffRole === 'auditor' ? '👁️ Open Observer View' : '🖥️ Moderator Observer View';
+                        const playerLinks = staffRole === 'auditor' ? '' : `
                             <p><a href="/player1?game_id=${data.game_id}&participant_id=${data.player1_id}" target="_blank" class="link-btn">🎭 Player 1 View</a></p>
                             <p><a href="/player2?game_id=${data.game_id}&participant_id=${data.player2_id}" target="_blank" class="link-btn">🔍 Player 2 View</a></p>
-                            <p><a href="/moderator?game_id=${data.game_id}" target="_blank" class="link-btn">🖥️ Moderator Observer View</a></p>
+                        `;
+                        gameLinks.innerHTML = `
+                            ${playerLinks}
+                            <p><a href="/moderator?game_id=${data.game_id}" target="_blank" class="link-btn">${observerLabel}</a></p>
                         `;
                     } else {
                         document.getElementById('game-links-section').style.display = 'none';
                     }
 
-                    updateButtons(data);
+                    if (staffRole !== 'auditor') {
+                        updateButtons(data);
+                    }
                 }
             } catch (err) {
                 console.error('Status update failed:', err);
@@ -412,6 +432,7 @@
             }
         }
 
+        if (staffRole !== 'auditor') {
         document.getElementById('btn-open').onclick = async () => {
             try {
                 const res = await fetch('/moderator/control/open', { method: 'POST' });
@@ -550,6 +571,7 @@
             },
             successLabel: 'Check again',
         });
+        }
 
         updateStatus();
         setInterval(updateStatus, 2000);
