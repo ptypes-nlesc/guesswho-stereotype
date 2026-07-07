@@ -25,6 +25,18 @@ from flask import (
 from flask_socketio import SocketIO, join_room
 import redis
 
+from auth import (
+    ROLE_AUDITOR,
+    ROLE_MODERATOR,
+    authenticate_staff,
+    can_view_game,
+    clear_staff_session,
+    get_session_role,
+    is_moderator,
+    is_staff,
+    set_staff_session,
+)
+
 load_dotenv()
 
 # ---------------------------------------------------------------------
@@ -119,6 +131,7 @@ REDIS_CONFIG = {
 }
 
 MODERATOR_PASSWORD = os.getenv("MODERATOR_PASSWORD")
+AUDITOR_PASSWORD = os.getenv("AUDITOR_PASSWORD")
 
 # Skip validation during testing
 IS_TESTING = os.getenv('TESTING') == '1'
@@ -901,16 +914,22 @@ def index():
 
 @app.route("/login", methods=["POST"])
 def login():
-    """Simple moderator login."""
-    if request.form.get("password") == MODERATOR_PASSWORD:
-        session["moderator"] = True
+    """Staff login for moderator or read-only auditor."""
+    password = request.form.get("password", "")
+    role = request.form.get("role", ROLE_MODERATOR)
+    if role not in (ROLE_MODERATOR, ROLE_AUDITOR):
+        role = ROLE_MODERATOR
+
+    if authenticate_staff(role, password, MODERATOR_PASSWORD, AUDITOR_PASSWORD):
+        set_staff_session(role)
         return redirect(url_for("dashboard"))
-    return render_template("index.html", error=True)
+    return render_template("index.html", error=True, selected_role=role)
 
 
 @app.route("/logout")
 def logout():
     """Clear session and return to login."""
+    clear_staff_session()
     session.clear()
     return redirect(url_for("index"))
 
@@ -993,12 +1012,12 @@ def check_role_binding(game_id, participant_id, required_role):
 
 @app.route("/dashboard")
 def dashboard():
-    """Moderator dashboard."""
-    if not session.get("moderator"):
+    """Staff dashboard."""
+    if not is_staff():
         return redirect(url_for("index"))
-    # Clear any previous session when moderator goes to dashboard
-    session['moderator_session_game_id'] = None
-    return render_template("dashboard.html")
+    if is_moderator():
+        session['moderator_session_game_id'] = None
+    return render_template("dashboard.html", staff_role=get_session_role())
 
 
 @app.route("/player1")
@@ -1051,22 +1070,28 @@ def player2():
 
 @app.route("/moderator")
 def moderator():
-    """Moderator live view."""
+    """Staff live observer view."""
     game_id = request.args.get("game_id")
-    if not session.get("moderator"):
+    if not is_staff():
         return redirect(url_for("index"))
     
     if not game_id:
         return "Missing game_id parameter", 400
+
+    if not can_view_game(game_id, get_current_session_game_id):
+        return "Forbidden: cannot view this session", 403
     
     chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
     eliminated = get_eliminated_cards(game_id)
+    staff_role = get_session_role()
     return render_template(
         "moderator.html",
         game_id=game_id,
         cards=CARDS,
         eliminated=eliminated,
         secret_card={"id": chosen, "name": f"Card {chosen}"},
+        staff_role=staff_role,
+        read_only=staff_role == ROLE_AUDITOR,
     )
 
 
@@ -1450,7 +1475,7 @@ def _stop_active_recording(game_id, game_state, reason="moderator_stop"):
 @app.route("/moderator/control")
 def moderator_control():
     """Moderator control panel."""
-    if not session.get("moderator"):
+    if not is_staff():
         return redirect(url_for("index"))
     return redirect(url_for("dashboard"))
 
@@ -1458,7 +1483,7 @@ def moderator_control():
 @app.route("/moderator/control/status")
 def moderator_control_status():
     """Get current game state for moderator."""
-    if not session.get("moderator"):
+    if not is_staff():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     # Use moderator's session to track their current game, fall back to global
@@ -1506,7 +1531,7 @@ def moderator_control_status():
 @app.route("/moderator/control/open", methods=["POST"])
 def moderator_open_entry():
     """Moderator opens entry for participants."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
@@ -1566,7 +1591,7 @@ def moderator_open_entry():
 @app.route("/moderator/control/close", methods=["POST"])
 def moderator_close_entry():
     """Moderator closes entry for participants."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
@@ -1590,7 +1615,7 @@ def moderator_close_entry():
 @app.route("/moderator/control/start", methods=["POST"])
 def moderator_start_game():
     """Moderator starts the game (transitions READY -> IN_PROGRESS)."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
@@ -1633,7 +1658,7 @@ def moderator_start_game():
 @app.route("/moderator/control/end", methods=["POST"])
 def moderator_end_game():
     """Moderator ends the game (transitions IN_PROGRESS -> ENDED)."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
@@ -1669,7 +1694,7 @@ def moderator_end_game():
 @app.route("/moderator/control/swap_roles", methods=["POST"])
 def moderator_swap_roles():
     """Moderator swaps player roles for round 2 in the same game session."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
 
     moderator_game_id = session.get('moderator_session_game_id')
@@ -1761,7 +1786,7 @@ def moderator_swap_roles():
 @app.route("/moderator/control/reset", methods=["POST"])
 def moderator_reset_session():
     """Moderator resets session (transitions ENDED -> CLOSED)."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     moderator_game_id = session.get('moderator_session_game_id')
@@ -1792,7 +1817,7 @@ def moderator_reset_session():
 @app.route("/moderator/control/recording/start", methods=["POST"])
 def moderator_recording_start():
     """Start a moderator-controlled recording session for the active game."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
 
     moderator_game_id, game_state = _resolve_moderator_game_context()
@@ -1839,7 +1864,7 @@ def moderator_recording_start():
 @app.route("/moderator/control/recording/stop", methods=["POST"])
 def moderator_recording_stop():
     """Stop the active recording session for the current game."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
 
     moderator_game_id, game_state = _resolve_moderator_game_context()
@@ -1867,7 +1892,7 @@ def moderator_recording_stop():
 @app.route("/moderator/tokens/generate", methods=["POST"])
 def moderator_generate_tokens():
     """Generate access tokens for participant invitations."""
-    if not session.get("moderator"):
+    if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
     
     data = request.get_json() or {}
@@ -1934,6 +1959,15 @@ def validate_role_binding(game_id, participant_id, claimed_role):
     Returns (valid: bool, error_msg: str or None)
     """
     if claimed_role == "moderator":
+        if not is_moderator():
+            return False, "Unauthorized"
+        return True, None
+
+    if claimed_role == "auditor":
+        if get_session_role() != ROLE_AUDITOR:
+            return False, "Unauthorized"
+        if not can_view_game(game_id, get_current_session_game_id):
+            return False, "Cannot observe this session"
         return True, None
 
     if not participant_id:
@@ -1953,7 +1987,7 @@ def handle_join(data):
     game_id = data.get("game_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
-    actor_participant_id = participant_id if role != "moderator" else None
+    actor_participant_id = participant_id if role not in ("moderator", "auditor") else None
     
     if not game_id:
         return {"status": "error", "message": "game_id required"}
@@ -2002,6 +2036,8 @@ def handle_chat(data):
     game_id = data.get("game_id")
     role = data.get("role", "unknown")
     participant_id = data.get("participant_id")
+    if role == ROLE_AUDITOR:
+        return {"status": "error", "message": "Read-only"}
     actor_participant_id = participant_id if role != "moderator" else None
     text = data.get("text", "")
     
@@ -2035,6 +2071,8 @@ def handle_voice_join(data):
     role = data.get("role", "unknown")
     client_id = data.get("client_id")
     participant_id = data.get("participant_id")
+    if role == ROLE_AUDITOR:
+        return {"status": "error", "message": "Read-only"}
     actor_participant_id = participant_id if role != "moderator" else None
     
     if not game_id:
@@ -2140,7 +2178,7 @@ def transcript():
     
     limit = int(request.args.get("limit", "200"))
     transcript_type = request.args.get("type", "all")
-    include_eliminations = bool(session.get("moderator"))
+    include_eliminations = is_staff()
     elimination_round_number = None
     if include_eliminations:
         game_state = get_game_state(game_id)

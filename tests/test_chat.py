@@ -123,33 +123,44 @@ class TestChat:
         assert len(chat_events) > 0
         assert chat_events[0]['text'] == 'The person has brown hair.'
 
-    def test_moderator_send_chat(self, socketio_client, reset_globals, create_test_game):
+    def test_moderator_send_chat(self, test_db, reset_globals, create_test_game):
         """Test Moderator sending a chat message."""
-        from app import get_chat_history
-        
+        from app import app, socketio, get_chat_history
+
         game_id = "test-game-789"
-        
-        # Create game record in database first
         create_test_game(game_id)
-        
-        # Emit join event
-        socketio_client.emit('join', {
-            'game_id': game_id,
-            'role': 'moderator'
-        })
-        
-        # Emit chat message
-        socketio_client.emit('chat', {
-            'game_id': game_id,
-            'role': 'moderator',
-            'text': 'Good question. Please continue.'
-        })
-        
-        # Check that message was logged to chat table
-        chat_history = get_chat_history(game_id)
-        chat_events = [e for e in chat_history if e['role'] == 'moderator']
-        assert len(chat_events) > 0
-        assert chat_events[0]['text'] == 'Good question. Please continue.'
+
+        app.config["TESTING"] = True
+        app.config["SECRET_KEY"] = "test-secret-key"
+        flask_client = app.test_client()
+        login_res = flask_client.post(
+            "/login",
+            data={"password": "test-password", "role": "moderator"},
+        )
+        assert login_res.status_code == 302
+        socketio_client = socketio.test_client(app, flask_test_client=flask_client)
+        try:
+            join_ack = socketio_client.emit(
+                "join", {"game_id": game_id, "role": "moderator"}, callback=True
+            )
+            chat_ack = socketio_client.emit(
+                "chat",
+                {
+                    "game_id": game_id,
+                    "role": "moderator",
+                    "text": "Good question. Please continue.",
+                },
+                callback=True,
+            )
+            assert join_ack != {"status": "error", "message": "Unauthorized"}, join_ack
+            assert chat_ack != {"status": "error", "message": "Unauthorized"}, chat_ack
+
+            chat_history = get_chat_history(game_id)
+            chat_events = [e for e in chat_history if e["role"] == "moderator"]
+            assert len(chat_events) > 0
+            assert chat_events[0]["text"] == "Good question. Please continue."
+        finally:
+            socketio_client.disconnect()
 
     def test_chat_message_missing_text(self, socketio_client, reset_globals, create_test_game):
         """Test sending chat without text field."""

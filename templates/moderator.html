@@ -18,9 +18,15 @@
 
     <main class="moderator-main">
         <div class="header-bar">
-            <h2>Moderator View</h2>
+            <h2>{% if read_only %}Observer View{% else %}Moderator View{% endif %}</h2>
             <span class="game-info">Game ID: <span id="game-id-display">{{ game_id }}</span></span>
         </div>
+
+        {% if read_only %}
+        <p style="text-align:center; color:#856404; background:#fff8e1; padding:10px; border-radius:6px; max-width:720px; margin:0 auto 16px;">
+            Read-only auditor mode — chat and voice are disabled.
+        </p>
+        {% endif %}
 
         <div class="player-panels">
             <div class="player-box">
@@ -51,17 +57,21 @@
             <h3 class="chat-title">Chat</h3>
             <div id="transcript"></div>
 
+            {% if not read_only %}
             <div class="chat-bar">
                 <input type="text" id="chat-input" placeholder="Send a message to all participants">
                 <button id="send-chat">Send</button>
             </div>
+            {% endif %}
         </div>
 
+        {% if not read_only %}
         <div class="voice-controls" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
             <button id="voice-toggle">Join voice</button>
             <span id="voice-status" style="color: #555;">idle</span>
             <audio id="remote-audio" hidden></audio>
         </div>
+        {% endif %}
 
         <footer>
             <p>Moderator controls and monitoring panel – GuessWho Stereotype</p>
@@ -72,11 +82,13 @@
     <script>
         // --- Setup -----------------------------------------------------
         const gameId = new URLSearchParams(window.location.search).get('game_id') || '{{ game_id }}';
+        const readOnly = {{ read_only|default(false)|tojson }};
+        const socketRole = readOnly ? "auditor" : "moderator";
         document.getElementById("game-id-display").textContent = gameId;
 
         // --- Socket setup ---------------------------------------------
         const socket = io();
-        socket.emit("join", {game_id: gameId, role: "moderator"});
+        socket.emit("join", {game_id: gameId, role: socketRole});
 
         const transcriptDiv = document.getElementById("transcript");
         const chatInput = document.getElementById("chat-input");
@@ -132,15 +144,16 @@
                         gameEnded = true;
                         if (voice) voice.stopVoice();
                         // Disable interactions
-                        document.getElementById('chat-input').disabled = true;
-                        document.getElementById('send-chat').disabled = true;
-                        document.getElementById('voice-toggle').disabled = true;
-                        document.getElementById('voice-toggle').style.opacity = '0.6';
-                        document.getElementById('voice-toggle').style.cursor = 'not-allowed';
-                        
-                        // Make chat bar visually inactive
-                        document.querySelector('.chat-bar').style.opacity = '0.6';
-                        document.getElementById('send-chat').style.cursor = 'not-allowed';
+                        if (!readOnly) {
+                            document.getElementById('chat-input').disabled = true;
+                            document.getElementById('send-chat').disabled = true;
+                            document.getElementById('voice-toggle').disabled = true;
+                            document.getElementById('voice-toggle').style.opacity = '0.6';
+                            document.getElementById('voice-toggle').style.cursor = 'not-allowed';
+                            const chatBar = document.querySelector('.chat-bar');
+                            if (chatBar) chatBar.style.opacity = '0.6';
+                            document.getElementById('send-chat').style.cursor = 'not-allowed';
+                        }
                         
                         const endNotification = document.createElement('div');
                         endNotification.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff3cd; border: 2px solid #ffc107; padding: 30px; border-radius: 8px; text-align: center; font-size: 1.2em; font-weight: bold; color: #856404; z-index: 9999; width: 90%; max-width: 500px;';
@@ -207,20 +220,22 @@
         }
 
         // --- Chat send ------------------------------------------------
-        const sendChat = () => {
-            const text = chatInput.value.trim();
-            if (!text) return;
-            socket.emit("chat", {game_id: gameId, role: "moderator", text});
-            chatInput.value = "";
-        };
+        if (!readOnly && chatInput) {
+            const sendChat = () => {
+                const text = chatInput.value.trim();
+                if (!text) return;
+                socket.emit("chat", {game_id: gameId, role: "moderator", text});
+                chatInput.value = "";
+            };
 
-        document.getElementById("send-chat").onclick = sendChat;
-        chatInput.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                sendChat();
-            }
-        });
+            document.getElementById("send-chat").onclick = sendChat;
+            chatInput.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    sendChat();
+                }
+            });
+        }
 
         // --- Socket events --------------------------------------------
         socket.on("chat", data => appendMessage(`<b>${data.role}:</b> ${data.text}`));
@@ -257,16 +272,18 @@
         });
 
         // --- Voice (WebRTC) -------------------------------------------
-        voice = setupVoice({
-            socket,
-            gameId,
-            role: "moderator",
-            buttonEl: document.getElementById("voice-toggle"),
-            statusEl: document.getElementById("voice-status"),
-            remoteAudioEl: document.getElementById("remote-audio"),
-        });
-        if (MicCheck.isMicReady()) {
-            voice.startVoice();
+        if (!readOnly) {
+            voice = setupVoice({
+                socket,
+                gameId,
+                role: "moderator",
+                buttonEl: document.getElementById("voice-toggle"),
+                statusEl: document.getElementById("voice-status"),
+                remoteAudioEl: document.getElementById("remote-audio"),
+            });
+            if (MicCheck.isMicReady()) {
+                voice.startVoice();
+            }
         }
 
         socket.on('recording_start', (data) => {

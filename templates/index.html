@@ -70,14 +70,19 @@
 <body>
     <div class="login-box">
         <img src="{{ url_for('static', filename='logo.png') }}" alt="GuessWho Logo" class="logo">
-        <h2>Moderator Login</h2>
+        <h2>Staff Login</h2>
 
         {% if error %}
         <p style="color: red;">Invalid password. Please try again.</p>
         {% endif %}
 
         <form method="POST" action="/login">
-            <input type="password" name="password" placeholder="Enter moderator password" required>
+            <label for="role" style="display:block; text-align:left; margin-bottom:8px; font-size:14px;">Role</label>
+            <select id="role" name="role" style="width:100%; padding:10px; margin-bottom:15px; border:1px solid #ccc; border-radius:6px; font-size:14px;">
+                <option value="moderator" {% if selected_role|default('moderator') == 'moderator' %}selected{% endif %}>Moderator</option>
+                <option value="auditor" {% if selected_role|default('moderator') == 'auditor' %}selected{% endif %}>Auditor (read-only)</option>
+            </select>
+            <input type="password" name="password" placeholder="Enter password" required>
             <button type="submit">Login</button>
         </form>
 

@@ -7,7 +7,7 @@ class TestAuth:
         """Test home page loads."""
         res = client.get("/")
         assert res.status_code == 200
-        assert b"Moderator Login" in res.data  # More precise; adjust to actual form title
+        assert b"Staff Login" in res.data
 
     @pytest.mark.parametrize("password, expected_status, expected_redirect, expected_content", [
         ("test-password", 302, "/dashboard", None),  # Success (uses fixture override)
