@@ -1,17 +1,13 @@
 // Multi-peer WebRTC mesh for GuessWho
 // Voice joins automatically after mic check; use Mute to silence yourself.
+// Uses perfect negotiation to avoid offer/answer glare between peers.
 
 (function () {
+  // Keep iceServers small: 5+ slows discovery and triggers browser warnings.
   const ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
     {
-      urls: [
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-      ],
+      urls: "turn:openrelay.metered.ca:80",
       username: "openrelayproject",
       credential: "openrelayproject",
     },
@@ -58,6 +54,9 @@
     let remoteStreams = {};
     let peerAudioEls = {};
     let pendingCandidates = {};
+    let makingOffer = {};
+    let ignoreOffer = {};
+    let signalChain = {};
     let audioUnlocked = false;
     let voiceActive = false;
     let isMuted = false;
@@ -136,12 +135,41 @@
       updateMuteButton();
     }
 
+    function signalPayload(extra) {
+      return {
+        game_id: gameId,
+        from_id: clientId,
+        role,
+        ...(includeParticipantId ? { participant_id: participantId } : {}),
+        ...extra,
+      };
+    }
+
+    /** Deterministic offerer: lower client_id always makes the offer (impolite). */
+    function shouldBeOfferer(localId, remoteId) {
+      return localId < remoteId;
+    }
+
+    function isPolite(remoteId) {
+      // Polite peer yields on glare (does not make the initial offer).
+      return !shouldBeOfferer(clientId, remoteId);
+    }
+
+    function enqueueSignal(peerId, task) {
+      const prev = signalChain[peerId] || Promise.resolve();
+      const next = prev.then(task, task);
+      signalChain[peerId] = next.catch(() => {});
+      return next;
+    }
+
     function addLocalTracksToPeer(pc) {
       if (!localStream) return false;
       let added = false;
       const senders = pc.getSenders();
       localStream.getTracks().forEach((track) => {
-        const alreadySending = senders.some((sender) => sender.track && sender.track.id === track.id);
+        const alreadySending = senders.some(
+          (sender) => sender.track && sender.track.id === track.id
+        );
         if (!alreadySending) {
           pc.addTrack(track, localStream);
           added = true;
@@ -153,37 +181,38 @@
     async function sendOffer(peerId, reason) {
       const pc = peers[peerId];
       if (!pc || !localStream) return;
-      addLocalTracksToPeer(pc);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      console.log(`[WebRTC] Sending OFFER (${reason}) from ${clientId} to ${peerId}`);
-      socket.emit("webrtc_signal", {
-        game_id: gameId,
-        from_id: clientId,
-        to_id: peerId,
-        role,
-        ...(includeParticipantId ? { participant_id: participantId } : {}),
-        description: pc.localDescription,
-      });
-    }
+      if (pc.signalingState !== "stable") {
+        console.log(`[WebRTC] Skip offer to ${peerId} (${reason}): state=${pc.signalingState}`);
+        return;
+      }
 
-    async function renegotiateOutboundPeers(reason) {
-      if (!localStream) return;
-      for (const peerId of Object.keys(peers)) {
-        if (shouldBeOfferer(clientId, peerId)) {
-          try {
-            await sendOffer(peerId, reason);
-          } catch (err) {
-            console.error(`[WebRTC] Renegotiation failed for ${peerId}:`, err);
-          }
-        }
+      addLocalTracksToPeer(pc);
+      makingOffer[peerId] = true;
+      try {
+        await pc.setLocalDescription(await pc.createOffer());
+        console.log(`[WebRTC] Sending OFFER (${reason}) from ${clientId} to ${peerId}`);
+        socket.emit(
+          "webrtc_signal",
+          signalPayload({
+            to_id: peerId,
+            description: pc.localDescription,
+          })
+        );
+      } finally {
+        makingOffer[peerId] = false;
       }
     }
 
     function removePeer(peerId) {
       const pc = peers[peerId];
       if (pc) {
-        try { pc.close(); } catch (_) {}
+        try {
+          pc.onicecandidate = null;
+          pc.ontrack = null;
+          pc.onconnectionstatechange = null;
+          pc.onnegotiationneeded = null;
+          pc.close();
+        } catch (_) {}
       }
       const audio = peerAudioEls[peerId];
       if (audio) {
@@ -193,6 +222,10 @@
       }
       delete remoteStreams[peerId];
       delete peers[peerId];
+      delete pendingCandidates[peerId];
+      delete makingOffer[peerId];
+      delete ignoreOffer[peerId];
+      delete signalChain[peerId];
       updateStatus();
     }
 
@@ -206,19 +239,19 @@
     }
 
     function createPeerConnection(peerId) {
+      if (peers[peerId]) return peers[peerId];
+
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
       pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit("webrtc_signal", {
-            game_id: gameId,
-            from_id: clientId,
+        if (!event.candidate) return;
+        socket.emit(
+          "webrtc_signal",
+          signalPayload({
             to_id: peerId,
-            role,
-            ...(includeParticipantId ? { participant_id: participantId } : {}),
             candidate: event.candidate,
-          });
-        }
+          })
+        );
       };
 
       pc.ontrack = (event) => attachRemoteTrack(peerId, event);
@@ -232,8 +265,10 @@
         }
         if (state === "disconnected") {
           setTimeout(() => {
-            const current = pc.connectionState || "idle";
-            if (current === "disconnected" || current === "failed" || current === "closed") {
+            const current = peers[peerId];
+            if (!current || current !== pc) return;
+            const s = pc.connectionState || "idle";
+            if (s === "disconnected" || s === "failed" || s === "closed") {
               removePeer(peerId);
             }
           }, 3000);
@@ -244,6 +279,20 @@
         updateStatus();
       };
 
+      // Only the designated offerer responds to negotiationneeded.
+      pc.onnegotiationneeded = () => {
+        enqueueSignal(peerId, async () => {
+          if (!shouldBeOfferer(clientId, peerId)) return;
+          if (!localStream || !peers[peerId]) return;
+          try {
+            await sendOffer(peerId, "negotiationneeded");
+          } catch (err) {
+            console.error(`[WebRTC] negotiationneeded failed for ${peerId}:`, err);
+          }
+        });
+      };
+
+      // Add local tracks once at creation so the first offer/answer includes audio.
       addLocalTracksToPeer(pc);
       peers[peerId] = pc;
       if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
@@ -257,7 +306,11 @@
       }
       const peerIds = Object.keys(peers);
       if (peerIds.length === 0) {
-        setStatus(isMuted ? "voice on (muted) — waiting for peers…" : "voice on — waiting for peers…");
+        setStatus(
+          isMuted
+            ? "voice on (muted) — waiting for peers…"
+            : "voice on — waiting for peers…"
+        );
         return;
       }
       const states = Object.values(peers).map((pc) => pc.connectionState || "unknown");
@@ -269,78 +322,120 @@
       setStatus(text);
     }
 
-    function shouldBeOfferer(localId, remoteId) {
-      return localId < remoteId;
+    async function flushPendingCandidates(peerId, pc) {
+      const queued = pendingCandidates[peerId] || [];
+      pendingCandidates[peerId] = [];
+      for (const cand of queued) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          if (!ignoreOffer[peerId]) {
+            console.warn(`Failed to add queued ICE candidate from ${peerId}:`, e);
+          }
+        }
+      }
     }
 
     async function handleRemoteDescription(peerId, description) {
-      let pc = peers[peerId];
-      if (!pc) {
-        pc = createPeerConnection(peerId);
+      const pc = createPeerConnection(peerId);
+      const polite = isPolite(peerId);
+
+      const offerCollision =
+        description.type === "offer" &&
+        (makingOffer[peerId] || pc.signalingState !== "stable");
+
+      ignoreOffer[peerId] = !polite && offerCollision;
+      if (ignoreOffer[peerId]) {
+        console.log(`[WebRTC] Ignoring colliding offer from ${peerId} (we are impolite)`);
+        return;
       }
 
-      try {
+      // Polite peer: rollback local offer on glare, then accept remote offer.
+      if (offerCollision && polite) {
+        console.log(`[WebRTC] Glare with ${peerId}: rolling back local offer`);
+        await Promise.all([
+          pc.setLocalDescription({ type: "rollback" }),
+          pc.setRemoteDescription(new RTCSessionDescription(description)),
+        ]);
+      } else {
         await pc.setRemoteDescription(new RTCSessionDescription(description));
-        if (pendingCandidates[peerId] && pendingCandidates[peerId].length) {
-          for (const cand of pendingCandidates[peerId]) {
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(cand));
-            } catch (e) {
-              console.warn(`Failed to add queued ICE candidate from ${peerId}:`, e);
-            }
-          }
-          pendingCandidates[peerId] = [];
+      }
+
+      await flushPendingCandidates(peerId, pc);
+
+      if (description.type === "offer") {
+        addLocalTracksToPeer(pc);
+        if (pc.signalingState !== "have-remote-offer") {
+          console.warn(
+            `[WebRTC] Unexpected state after remote offer from ${peerId}: ${pc.signalingState}`
+          );
+          return;
         }
-        if (description.type === "offer") {
-          addLocalTracksToPeer(pc);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.emit("webrtc_signal", {
-            game_id: gameId,
-            from_id: clientId,
+        await pc.setLocalDescription(await pc.createAnswer());
+        socket.emit(
+          "webrtc_signal",
+          signalPayload({
             to_id: peerId,
-            role,
-            ...(includeParticipantId ? { participant_id: participantId } : {}),
             description: pc.localDescription,
-          });
-        }
-      } catch (err) {
-        console.error(`Error handling remote description from ${peerId}:`, err);
+          })
+        );
       }
     }
 
     async function handleIncomingSignal(payload) {
       const fromId = payload.from_id;
+      if (!fromId || fromId === clientId) return;
+
       const description = payload.description;
       const candidate = payload.candidate;
 
-      if (description) {
-        await handleRemoteDescription(fromId, description);
-      } else if (candidate) {
-        let pc = peers[fromId];
-        if (!pc) {
-          pc = createPeerConnection(fromId);
+      await enqueueSignal(fromId, async () => {
+        if (description) {
+          try {
+            await handleRemoteDescription(fromId, description);
+          } catch (err) {
+            console.error(`Error handling remote description from ${fromId}:`, err);
+          }
+          return;
         }
+
+        if (!candidate) return;
+
+        const pc = createPeerConnection(fromId);
         try {
-          if (pc.remoteDescription) {
+          if (pc.remoteDescription && pc.remoteDescription.type) {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
           } else {
             if (!pendingCandidates[fromId]) pendingCandidates[fromId] = [];
             pendingCandidates[fromId].push(candidate);
           }
         } catch (err) {
-          console.error(`Failed to process ICE candidate from ${fromId}:`, err);
+          if (!ignoreOffer[fromId]) {
+            console.error(`Failed to process ICE candidate from ${fromId}:`, err);
+          }
         }
-      }
+      });
     }
 
     async function connectToPeer(peerId, reason) {
-      if (!localStream || peers[peerId]) return;
-      createPeerConnection(peerId);
-      if (shouldBeOfferer(clientId, peerId)) {
-        await sendOffer(peerId, reason);
-      }
-      updateStatus();
+      if (!localStream || !peerId || peerId === clientId) return;
+
+      await enqueueSignal(peerId, async () => {
+        const existing = peers[peerId];
+        if (existing) {
+          // Already negotiating or connected — do not force a second offer.
+          return;
+        }
+        createPeerConnection(peerId);
+        if (shouldBeOfferer(clientId, peerId)) {
+          try {
+            await sendOffer(peerId, reason);
+          } catch (err) {
+            console.error(`[WebRTC] Initial offer failed for ${peerId}:`, err);
+          }
+        }
+        updateStatus();
+      });
     }
 
     async function startVoice() {
@@ -386,7 +481,8 @@
         voiceActive = true;
         bindSilentAudioUnlock();
         setMuted(false);
-        await renegotiateOutboundPeers("after-voice-join");
+        // Peers are created from peers_list / new_peer_joined with tracks already attached.
+        // Do not mass-renegotiate here — that caused mid/answer races.
         updateStatus();
       } catch (err) {
         console.error("Voice start failed:", err);
@@ -407,6 +503,10 @@
       peers = {};
       peerAudioEls = {};
       remoteStreams = {};
+      pendingCandidates = {};
+      makingOffer = {};
+      ignoreOffer = {};
+      signalChain = {};
 
       if (localStream) {
         localStream.getTracks().forEach((t) => t.stop());
@@ -437,6 +537,7 @@
     });
 
     socket.on("new_peer_joined", async (data) => {
+      if (!data || data.client_id === clientId) return;
       await connectToPeer(data.client_id, "new-peer");
     });
 
