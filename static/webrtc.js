@@ -1,6 +1,10 @@
 // Multi-peer WebRTC mesh for GuessWho
 // Voice joins automatically after mic check; use Mute to silence yourself.
 // Uses perfect negotiation to avoid offer/answer glare between peers.
+//
+// Single-browser multi-tab self-test often fails to "hear yourself" even when
+// connected (autoplay policy + echo cancellation). Prefer two devices, or
+// open pages with ?voice_debug=1 to loosen mic processing and log levels.
 
 (function () {
   // Keep iceServers small: 5+ slows discovery and triggers browser warnings.
@@ -12,6 +16,14 @@
       credential: "openrelayproject",
     },
   ];
+
+  function voiceDebugEnabled() {
+    try {
+      return new URLSearchParams(window.location.search).has("voice_debug");
+    } catch (_) {
+      return false;
+    }
+  }
 
   function setupVoice(opts) {
     const socket = opts.socket;
@@ -25,6 +37,7 @@
       { active: "Mute", muted: "Unmute", pending: "Mute" },
       opts.muteLabels || {}
     );
+    const debug = voiceDebugEnabled();
 
     const participantStorageKey = `participant_id_${gameId}_${role}`;
     let participantId = localStorage.getItem(participantStorageKey);
@@ -48,6 +61,7 @@
       } catch (_) {}
     }
     console.log(`[WebRTC] Stable client_id: ${clientId}`);
+    if (debug) console.log("[WebRTC] voice_debug=1 — AEC off, inbound stats logging on");
 
     let localStream = null;
     let peers = {};
@@ -57,22 +71,36 @@
     let makingOffer = {};
     let ignoreOffer = {};
     let signalChain = {};
+    let statsTimers = {};
     let audioUnlocked = false;
+    let audioBlocked = false;
     let voiceActive = false;
     let isMuted = false;
     let audioUnlockBound = false;
+    let audioCtx = null;
 
     function bindSilentAudioUnlock() {
       if (audioUnlockBound) return;
       audioUnlockBound = true;
-      document.addEventListener(
-        "click",
-        () => {
-          if (!voiceActive || audioUnlocked) return;
-          playAllRemoteAudio().then(() => updateStatus());
-        },
-        true
-      );
+      const unlock = () => {
+        if (!voiceActive) return;
+        resumeAudioContext();
+        playAllRemoteAudio().then(() => updateStatus());
+      };
+      document.addEventListener("click", unlock, true);
+      document.addEventListener("keydown", unlock, true);
+      document.addEventListener("touchstart", unlock, true);
+    }
+
+    function resumeAudioContext() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!audioCtx) audioCtx = new Ctx();
+        if (audioCtx.state === "suspended") {
+          audioCtx.resume().catch(() => {});
+        }
+      } catch (_) {}
     }
 
     function setStatus(text) {
@@ -88,7 +116,9 @@
         return;
       }
       muteButtonEl.disabled = false;
-      muteButtonEl.title = "";
+      muteButtonEl.title = audioBlocked
+        ? "Click to enable speaker output"
+        : "";
       muteButtonEl.textContent = isMuted ? muteLabels.muted : muteLabels.active;
     }
 
@@ -97,31 +127,60 @@
       const audio = document.createElement("audio");
       audio.autoplay = true;
       audio.playsInline = true;
+      // Required for WebKit; keep element in the document tree.
+      audio.setAttribute("playsinline", "");
+      audio.setAttribute("autoplay", "");
+      audio.controls = false;
       audio.muted = false;
-      audio.volume = 1;
+      audio.volume = 1.0;
       audio.dataset.peerId = peerId;
-      audio.style.cssText = "position:fixed;width:0;height:0;opacity:0;pointer-events:none;";
+      // Not display:none — some browsers refuse to play fully hidden media.
+      audio.style.cssText =
+        "position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;z-index:-1;";
       document.body.appendChild(audio);
       peerAudioEls[peerId] = audio;
       return audio;
     }
 
-    async function playAllRemoteAudio() {
-      const elements = Object.values(peerAudioEls);
-      let allOk = true;
-      for (const audio of elements) {
-        if (!audio.srcObject) continue;
-        audio.muted = false;
-        try {
-          await audio.play();
-        } catch (err) {
-          console.warn("[WebRTC] Audio play blocked:", err);
-          allOk = false;
+    async function playOne(audio, peerId) {
+      if (!audio || !audio.srcObject) return false;
+      audio.muted = false;
+      audio.volume = 1.0;
+      try {
+        await audio.play();
+        if (debug) {
+          console.log(`[WebRTC] play() ok for ${peerId || audio.dataset.peerId}`, {
+            paused: audio.paused,
+            muted: audio.muted,
+            volume: audio.volume,
+            readyState: audio.readyState,
+          });
         }
+        return true;
+      } catch (err) {
+        console.warn(
+          `[WebRTC] Audio play blocked for ${peerId || audio.dataset.peerId}:`,
+          err
+        );
+        return false;
       }
-      if (allOk && elements.length > 0) {
-        audioUnlocked = true;
+    }
+
+    async function playAllRemoteAudio() {
+      resumeAudioContext();
+      const entries = Object.entries(peerAudioEls);
+      if (entries.length === 0) {
+        audioBlocked = false;
+        return true;
       }
+      let allOk = true;
+      for (const [peerId, audio] of entries) {
+        if (!audio.srcObject) continue;
+        const ok = await playOne(audio, peerId);
+        if (!ok) allOk = false;
+      }
+      audioUnlocked = allOk;
+      audioBlocked = !allOk;
       return allOk;
     }
 
@@ -130,6 +189,16 @@
       if (localStream) {
         localStream.getAudioTracks().forEach((track) => {
           track.enabled = !muted;
+        });
+      }
+      if (debug) {
+        console.log(`[WebRTC] local mic ${muted ? "MUTED" : "LIVE"}`, {
+          tracks: (localStream && localStream.getAudioTracks().map((t) => ({
+            id: t.id,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState,
+          }))) || [],
         });
       }
       updateMuteButton();
@@ -151,7 +220,6 @@
     }
 
     function isPolite(remoteId) {
-      // Polite peer yields on glare (does not make the initial offer).
       return !shouldBeOfferer(clientId, remoteId);
     }
 
@@ -203,6 +271,45 @@
       }
     }
 
+    function stopStats(peerId) {
+      if (statsTimers[peerId]) {
+        clearInterval(statsTimers[peerId]);
+        delete statsTimers[peerId];
+      }
+    }
+
+    function startStats(peerId, pc) {
+      if (!debug) return;
+      stopStats(peerId);
+      let ticks = 0;
+      statsTimers[peerId] = setInterval(async () => {
+        ticks += 1;
+        if (ticks > 30 || !peers[peerId]) {
+          stopStats(peerId);
+          return;
+        }
+        try {
+          const report = await pc.getStats();
+          report.forEach((r) => {
+            if (r.type === "inbound-rtp" && (r.kind === "audio" || r.mediaType === "audio")) {
+              console.log(`[WebRTC] inbound ${peerId}`, {
+                packetsReceived: r.packetsReceived,
+                bytesReceived: r.bytesReceived,
+                audioLevel: r.audioLevel,
+                jitter: r.jitter,
+              });
+            }
+            if (r.type === "outbound-rtp" && (r.kind === "audio" || r.mediaType === "audio")) {
+              console.log(`[WebRTC] outbound → peer ${peerId}`, {
+                packetsSent: r.packetsSent,
+                bytesSent: r.bytesSent,
+              });
+            }
+          });
+        } catch (_) {}
+      }, 2000);
+    }
+
     function removePeer(peerId) {
       const pc = peers[peerId];
       if (pc) {
@@ -214,8 +321,12 @@
           pc.close();
         } catch (_) {}
       }
+      stopStats(peerId);
       const audio = peerAudioEls[peerId];
       if (audio) {
+        try {
+          audio.pause();
+        } catch (_) {}
         audio.srcObject = null;
         audio.remove();
         delete peerAudioEls[peerId];
@@ -230,12 +341,60 @@
     }
 
     function attachRemoteTrack(peerId, event) {
-      const stream = event.streams[0] || new MediaStream([event.track]);
-      remoteStreams[peerId] = stream;
+      const track = event.track;
+      if (!track) return;
+
+      let stream = remoteStreams[peerId];
+      if (!stream) {
+        stream = event.streams && event.streams[0]
+          ? event.streams[0]
+          : new MediaStream();
+        remoteStreams[peerId] = stream;
+      }
+      if (!stream.getTracks().some((t) => t.id === track.id)) {
+        // Prefer the stream from the event when present; else attach manually.
+        if (!(event.streams && event.streams[0])) {
+          stream.addTrack(track);
+        } else {
+          stream = event.streams[0];
+          remoteStreams[peerId] = stream;
+        }
+      }
+
       const audio = getPeerAudioEl(peerId);
-      audio.srcObject = stream;
-      console.log(`[WebRTC] Remote track from ${peerId}`);
-      playAllRemoteAudio().then(() => updateStatus());
+      if (audio.srcObject !== stream) {
+        audio.srcObject = stream;
+      }
+
+      console.log(`[WebRTC] Remote track from ${peerId}`, {
+        id: track.id,
+        kind: track.kind,
+        muted: track.muted,
+        enabled: track.enabled,
+        readyState: track.readyState,
+      });
+
+      const tryPlay = () => {
+        playAllRemoteAudio().then(() => updateStatus());
+      };
+
+      track.onunmute = () => {
+        console.log(`[WebRTC] Remote track unmuted from ${peerId}`);
+        tryPlay();
+      };
+      track.onmute = () => {
+        console.log(`[WebRTC] Remote track muted from ${peerId}`);
+      };
+      track.onended = () => {
+        console.log(`[WebRTC] Remote track ended from ${peerId}`);
+      };
+
+      // Tracks often start muted until first RTP packet.
+      if (!track.muted) tryPlay();
+      else {
+        // Still attempt play; unmute handler will retry.
+        tryPlay();
+      }
     }
 
     function createPeerConnection(peerId) {
@@ -274,12 +433,12 @@
           }, 3000);
         }
         if (state === "connected") {
+          startStats(peerId, pc);
           playAllRemoteAudio().then(() => updateStatus());
         }
         updateStatus();
       };
 
-      // Only the designated offerer responds to negotiationneeded.
       pc.onnegotiationneeded = () => {
         enqueueSignal(peerId, async () => {
           if (!shouldBeOfferer(clientId, peerId)) return;
@@ -292,7 +451,6 @@
         });
       };
 
-      // Add local tracks once at creation so the first offer/answer includes audio.
       addLocalTracksToPeer(pc);
       peers[peerId] = pc;
       if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
@@ -304,6 +462,11 @@
         setStatus("connecting voice…");
         return;
       }
+      if (audioBlocked) {
+        setStatus("🔊 click page to enable sound");
+        updateMuteButton();
+        return;
+      }
       const peerIds = Object.keys(peers);
       if (peerIds.length === 0) {
         setStatus(
@@ -311,6 +474,7 @@
             ? "voice on (muted) — waiting for peers…"
             : "voice on — waiting for peers…"
         );
+        updateMuteButton();
         return;
       }
       const states = Object.values(peers).map((pc) => pc.connectionState || "unknown");
@@ -320,6 +484,7 @@
       if (isMuted) text += " (muted)";
       if (failed > 0) text += ` (${failed} failed)`;
       setStatus(text);
+      updateMuteButton();
     }
 
     async function flushPendingCandidates(peerId, pc) {
@@ -350,7 +515,6 @@
         return;
       }
 
-      // Polite peer: rollback local offer on glare, then accept remote offer.
       if (offerCollision && polite) {
         console.log(`[WebRTC] Glare with ${peerId}: rolling back local offer`);
         await Promise.all([
@@ -423,7 +587,6 @@
       await enqueueSignal(peerId, async () => {
         const existing = peers[peerId];
         if (existing) {
-          // Already negotiating or connected — do not force a second offer.
           return;
         }
         createPeerConnection(peerId);
@@ -447,13 +610,31 @@
         }
 
         if (!localStream) {
+          // Same-machine multi-tab loopback is often silenced by AEC.
+          // ?voice_debug=1 disables processing so self-test can hear packets.
+          const audioConstraints = debug
+            ? {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+              }
+            : {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              };
           localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
+            audio: audioConstraints,
           });
+          if (debug) {
+            console.log(
+              "[WebRTC] local tracks",
+              localStream.getAudioTracks().map((t) => ({
+                label: t.label,
+                settings: t.getSettings && t.getSettings(),
+              }))
+            );
+          }
         }
 
         await socketReady;
@@ -481,8 +662,6 @@
         voiceActive = true;
         bindSilentAudioUnlock();
         setMuted(false);
-        // Peers are created from peers_list / new_peer_joined with tracks already attached.
-        // Do not mass-renegotiate here — that caused mid/answer races.
         updateStatus();
       } catch (err) {
         console.error("Voice start failed:", err);
@@ -514,6 +693,7 @@
       }
 
       audioUnlocked = false;
+      audioBlocked = false;
       voiceActive = false;
       isMuted = false;
       setStatus("voice off");
@@ -523,7 +703,13 @@
     if (muteButtonEl) {
       muteButtonEl.addEventListener("click", async () => {
         if (!voiceActive) return;
+        // Mute click is a user gesture — always try to unlock speakers first.
         await playAllRemoteAudio();
+        // If audio was blocked, first click only enables speakers.
+        if (audioBlocked) {
+          updateStatus();
+          return;
+        }
         setMuted(!isMuted);
         updateStatus();
       });
