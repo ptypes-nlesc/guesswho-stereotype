@@ -1,16 +1,35 @@
 // Multi-peer WebRTC mesh for GuessWho
-// Allows 3+ participants to join a voice room and hear each other.
+// Voice joins automatically after mic check; use Mute to silence yourself.
 
 (function () {
+  const ICE_SERVERS = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ];
+
   function setupVoice(opts) {
     const socket = opts.socket;
     const gameId = opts.gameId;
     const role = opts.role;
-    const buttonEl = opts.buttonEl;
+    const muteButtonEl = opts.muteButtonEl || opts.buttonEl;
     const statusEl = opts.statusEl;
-    const remoteAudioEl = opts.remoteAudioEl;
+    const socketReady = opts.socketReady || Promise.resolve();
+    const autoJoin = opts.autoJoin !== false;
+    const muteLabels = Object.assign(
+      { active: "Mute", muted: "Unmute", pending: "Mute" },
+      opts.muteLabels || {}
+    );
 
-    // stable participant_id across reloads, scoped by game_id + role
     const participantStorageKey = `participant_id_${gameId}_${role}`;
     let participantId = localStorage.getItem(participantStorageKey);
     if (!participantId) {
@@ -21,42 +40,144 @@
     console.log(`[WebRTC] Participant ID (${role}): ${participantId}`);
     const includeParticipantId = role !== "moderator";
 
-    // Generate or reuse a stable client ID for this browser
     const storageKey = `gw_client_id_${role || "unknown"}`;
     let clientId = null;
     try {
       clientId = localStorage.getItem(storageKey);
-    } catch (_) {
-      // ignore localStorage errors
-    }
+    } catch (_) {}
     if (!clientId) {
       clientId = `${role || "unknown"}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       try {
         localStorage.setItem(storageKey, clientId);
-      } catch (_) {
-        // ignore localStorage errors
-      }
+      } catch (_) {}
     }
     console.log(`[WebRTC] Stable client_id: ${clientId}`);
 
     let localStream = null;
-    let peers = {}; // {peer_id: RTCPeerConnection}
-    let remoteStreams = {}; // {peer_id: MediaStream}
-    let pendingCandidates = {}; // {peer_id: RTCIceCandidate[]}
-    const remoteStream = new MediaStream(); // Combined remote audio
+    let peers = {};
+    let remoteStreams = {};
+    let peerAudioEls = {};
+    let pendingCandidates = {};
+    let audioUnlocked = false;
+    let voiceActive = false;
+    let isMuted = false;
+    let audioUnlockBound = false;
 
-    if (remoteAudioEl) {
-      remoteAudioEl.autoplay = true;
-      remoteAudioEl.playsInline = true;
-      remoteAudioEl.srcObject = remoteStream;
+    function bindSilentAudioUnlock() {
+      if (audioUnlockBound) return;
+      audioUnlockBound = true;
+      document.addEventListener(
+        "click",
+        () => {
+          if (!voiceActive || audioUnlocked) return;
+          playAllRemoteAudio().then(() => updateStatus());
+        },
+        true
+      );
     }
 
     function setStatus(text) {
       if (statusEl) statusEl.textContent = text;
     }
 
-    function setButton(joined) {
-      if (buttonEl) buttonEl.textContent = joined ? "Leave voice" : "Join voice";
+    function updateMuteButton() {
+      if (!muteButtonEl) return;
+      if (!voiceActive) {
+        muteButtonEl.textContent = muteLabels.pending;
+        muteButtonEl.disabled = true;
+        muteButtonEl.title = "Voice is connecting…";
+        return;
+      }
+      muteButtonEl.disabled = false;
+      muteButtonEl.title = "";
+      muteButtonEl.textContent = isMuted ? muteLabels.muted : muteLabels.active;
+    }
+
+    function getPeerAudioEl(peerId) {
+      if (peerAudioEls[peerId]) return peerAudioEls[peerId];
+      const audio = document.createElement("audio");
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.muted = false;
+      audio.volume = 1;
+      audio.dataset.peerId = peerId;
+      audio.style.cssText = "position:fixed;width:0;height:0;opacity:0;pointer-events:none;";
+      document.body.appendChild(audio);
+      peerAudioEls[peerId] = audio;
+      return audio;
+    }
+
+    async function playAllRemoteAudio() {
+      const elements = Object.values(peerAudioEls);
+      let allOk = true;
+      for (const audio of elements) {
+        if (!audio.srcObject) continue;
+        audio.muted = false;
+        try {
+          await audio.play();
+        } catch (err) {
+          console.warn("[WebRTC] Audio play blocked:", err);
+          allOk = false;
+        }
+      }
+      if (allOk && elements.length > 0) {
+        audioUnlocked = true;
+      }
+      return allOk;
+    }
+
+    function setMuted(muted) {
+      isMuted = muted;
+      if (localStream) {
+        localStream.getAudioTracks().forEach((track) => {
+          track.enabled = !muted;
+        });
+      }
+      updateMuteButton();
+    }
+
+    function addLocalTracksToPeer(pc) {
+      if (!localStream) return false;
+      let added = false;
+      const senders = pc.getSenders();
+      localStream.getTracks().forEach((track) => {
+        const alreadySending = senders.some((sender) => sender.track && sender.track.id === track.id);
+        if (!alreadySending) {
+          pc.addTrack(track, localStream);
+          added = true;
+        }
+      });
+      return added;
+    }
+
+    async function sendOffer(peerId, reason) {
+      const pc = peers[peerId];
+      if (!pc || !localStream) return;
+      addLocalTracksToPeer(pc);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      console.log(`[WebRTC] Sending OFFER (${reason}) from ${clientId} to ${peerId}`);
+      socket.emit("webrtc_signal", {
+        game_id: gameId,
+        from_id: clientId,
+        to_id: peerId,
+        role,
+        ...(includeParticipantId ? { participant_id: participantId } : {}),
+        description: pc.localDescription,
+      });
+    }
+
+    async function renegotiateOutboundPeers(reason) {
+      if (!localStream) return;
+      for (const peerId of Object.keys(peers)) {
+        if (shouldBeOfferer(clientId, peerId)) {
+          try {
+            await sendOffer(peerId, reason);
+          } catch (err) {
+            console.error(`[WebRTC] Renegotiation failed for ${peerId}:`, err);
+          }
+        }
+      }
     }
 
     function removePeer(peerId) {
@@ -64,57 +185,43 @@
       if (pc) {
         try { pc.close(); } catch (_) {}
       }
-      const stream = remoteStreams[peerId];
-      if (stream) {
-        stream.getTracks().forEach((t) => {
-          try { remoteStream.removeTrack(t); } catch (_) {}
-        });
+      const audio = peerAudioEls[peerId];
+      if (audio) {
+        audio.srcObject = null;
+        audio.remove();
+        delete peerAudioEls[peerId];
       }
-      delete peers[peerId];
       delete remoteStreams[peerId];
+      delete peers[peerId];
       updateStatus();
     }
 
+    function attachRemoteTrack(peerId, event) {
+      const stream = event.streams[0] || new MediaStream([event.track]);
+      remoteStreams[peerId] = stream;
+      const audio = getPeerAudioEl(peerId);
+      audio.srcObject = stream;
+      console.log(`[WebRTC] Remote track from ${peerId}`);
+      playAllRemoteAudio().then(() => updateStatus());
+    }
+
     function createPeerConnection(peerId) {
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-          {
-            urls: "turn:numb.viagenie.ca",
-            username: "webrtc@example.com",
-            credential: "webrtc"
-          }
-        ]
-      });
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log(`[WebRTC] Sending ICE candidate from ${clientId} to ${peerId}`);
           socket.emit("webrtc_signal", {
             game_id: gameId,
             from_id: clientId,
             to_id: peerId,
             role,
             ...(includeParticipantId ? { participant_id: participantId } : {}),
-            candidate: event.candidate
+            candidate: event.candidate,
           });
         }
       };
 
-      pc.ontrack = (event) => {
-        console.log(`ontrack from ${peerId}:`, event.streams);
-        event.streams.forEach((stream) => {
-          // Store remote stream and add its audio tracks to combined output
-          remoteStreams[peerId] = stream;
-          stream.getTracks().forEach((track) => {
-            remoteStream.addTrack(track);
-          });
-        });
-        if (remoteAudioEl) {
-          remoteAudioEl.play().catch(() => {});
-        }
-      };
+      pc.ontrack = (event) => attachRemoteTrack(peerId, event);
 
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState || "idle";
@@ -124,7 +231,6 @@
           return;
         }
         if (state === "disconnected") {
-          // Give it a short grace period to recover before removing
           setTimeout(() => {
             const current = pc.connectionState || "idle";
             if (current === "disconnected" || current === "failed" || current === "closed") {
@@ -132,34 +238,38 @@
             }
           }, 3000);
         }
+        if (state === "connected") {
+          playAllRemoteAudio().then(() => updateStatus());
+        }
         updateStatus();
       };
 
-      // Add local stream tracks to this peer connection
-      if (localStream) {
-        localStream.getTracks().forEach((track) => {
-          pc.addTrack(track, localStream);
-        });
-      }
-
+      addLocalTracksToPeer(pc);
       peers[peerId] = pc;
       if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
       return pc;
     }
 
     function updateStatus() {
-      if (Object.keys(peers).length === 0) {
-        setStatus("idle");
+      if (!voiceActive) {
+        setStatus("connecting voice…");
+        return;
+      }
+      const peerIds = Object.keys(peers);
+      if (peerIds.length === 0) {
+        setStatus(isMuted ? "voice on (muted) — waiting for peers…" : "voice on — waiting for peers…");
         return;
       }
       const states = Object.values(peers).map((pc) => pc.connectionState || "unknown");
       const connected = states.filter((s) => s === "connected").length;
-      setStatus(`${connected}/${states.length} connected`);
+      const failed = states.filter((s) => s === "failed").length;
+      let text = `${connected}/${states.length} connected`;
+      if (isMuted) text += " (muted)";
+      if (failed > 0) text += ` (${failed} failed)`;
+      setStatus(text);
     }
 
     function shouldBeOfferer(localId, remoteId) {
-      // Deterministic rule: only the peer with lexicographically lower ID sends offer
-      // This prevents offer glare and ensures symmetric, predictable signaling
       return localId < remoteId;
     }
 
@@ -171,7 +281,6 @@
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(description));
-        // Drain any ICE candidates received before remoteDescription was set
         if (pendingCandidates[peerId] && pendingCandidates[peerId].length) {
           for (const cand of pendingCandidates[peerId]) {
             try {
@@ -183,16 +292,16 @@
           pendingCandidates[peerId] = [];
         }
         if (description.type === "offer") {
+          addLocalTracksToPeer(pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          console.log(`[WebRTC] Sending ANSWER from ${clientId} to ${peerId}`);
           socket.emit("webrtc_signal", {
             game_id: gameId,
             from_id: clientId,
             to_id: peerId,
             role,
             ...(includeParticipantId ? { participant_id: participantId } : {}),
-            description: pc.localDescription
+            description: pc.localDescription,
           });
         }
       } catch (err) {
@@ -204,11 +313,6 @@
       const fromId = payload.from_id;
       const description = payload.description;
       const candidate = payload.candidate;
-      if (description) {
-        console.log(`[WebRTC] Received ${description.type.toUpperCase()} from ${fromId} to ${clientId}`);
-      } else if (candidate) {
-        console.log(`[WebRTC] Received ICE candidate from ${fromId} to ${clientId}`);
-      }
 
       if (description) {
         await handleRemoteDescription(fromId, description);
@@ -221,7 +325,6 @@
           if (pc.remoteDescription) {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
           } else {
-            // Queue the candidate until remoteDescription is set
             if (!pendingCandidates[fromId]) pendingCandidates[fromId] = [];
             pendingCandidates[fromId].push(candidate);
           }
@@ -231,113 +334,117 @@
       }
     }
 
+    async function connectToPeer(peerId, reason) {
+      if (!localStream || peers[peerId]) return;
+      createPeerConnection(peerId);
+      if (shouldBeOfferer(clientId, peerId)) {
+        await sendOffer(peerId, reason);
+      }
+      updateStatus();
+    }
+
     async function startVoice() {
       try {
-        if (!localStream) {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (window.MicCheck && !MicCheck.isMicReady()) {
+          setStatus("microphone check required");
+          updateMuteButton();
+          return;
         }
 
-        // Notify server we're joining voice
-        socket.emit("voice_join", {
-          game_id: gameId,
-          role,
-          client_id: clientId,
-          ...(includeParticipantId ? { participant_id: participantId } : {})
+        if (!localStream) {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+        }
+
+        await socketReady;
+
+        const ack = await new Promise((resolve) => {
+          socket.emit(
+            "voice_join",
+            {
+              game_id: gameId,
+              role,
+              client_id: clientId,
+              ...(includeParticipantId ? { participant_id: participantId } : {}),
+            },
+            resolve
+          );
         });
 
-        setButton(true);
-        setStatus("waiting for peers...");
+        if (!ack || ack.status === "error") {
+          setStatus(ack?.message || "voice join failed");
+          voiceActive = false;
+          updateMuteButton();
+          return;
+        }
+
+        voiceActive = true;
+        bindSilentAudioUnlock();
+        setMuted(false);
+        await renegotiateOutboundPeers("after-voice-join");
+        updateStatus();
       } catch (err) {
         console.error("Voice start failed:", err);
+        voiceActive = false;
         setStatus("microphone blocked");
+        updateMuteButton();
       }
     }
 
     function stopVoice() {
-      // Close all peer connections
-      Object.values(peers).forEach((pc) => {
-        pc.close();
+      socket.emit("voice_leave", {
+        game_id: gameId,
+        client_id: clientId,
+        role,
       });
-      peers = {};
 
-      // Stop local stream
+      Object.keys(peers).forEach((peerId) => removePeer(peerId));
+      peers = {};
+      peerAudioEls = {};
+      remoteStreams = {};
+
       if (localStream) {
         localStream.getTracks().forEach((t) => t.stop());
         localStream = null;
       }
 
-      // Clear remote streams
-      remoteStream.getTracks().forEach((t) => remoteStream.removeTrack(t));
-      Object.keys(remoteStreams).forEach((id) => {
-        delete remoteStreams[id];
-      });
-
-      setStatus("idle");
-      setButton(false);
+      audioUnlocked = false;
+      voiceActive = false;
+      isMuted = false;
+      setStatus("voice off");
+      updateMuteButton();
     }
 
-    if (buttonEl) {
-      buttonEl.addEventListener("click", () => {
-        if (Object.keys(peers).length > 0 || localStream) {
-          stopVoice();
-        } else {
-          startVoice();
-        }
+    if (muteButtonEl) {
+      muteButtonEl.addEventListener("click", async () => {
+        if (!voiceActive) return;
+        await playAllRemoteAudio();
+        setMuted(!isMuted);
+        updateStatus();
       });
     }
 
-    // Socket event: receive list of existing peers
     socket.on("peers_list", async (data) => {
-      const peersList = data.peers || [];
-      console.log("Received peers list:", peersList);
-      for (const peer of peersList) {
-        if (peer.client_id === clientId) continue; // ignore self if present
-        if (!peers[peer.client_id]) {
-          const pc = createPeerConnection(peer.client_id);
-          // Only send offer if we should be the offerer (lower client_id)
-          if (shouldBeOfferer(clientId, peer.client_id)) {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            console.log(`[WebRTC] Sending OFFER from ${clientId} to ${peer.client_id}`);
-            socket.emit("webrtc_signal", {
-              game_id: gameId,
-              from_id: clientId,
-              to_id: peer.client_id,
-              role,
-              ...(includeParticipantId ? { participant_id: participantId } : {}),
-              description: pc.localDescription
-            });
-          }
-        }
+      for (const peer of data.peers || []) {
+        if (peer.client_id === clientId) continue;
+        await connectToPeer(peer.client_id, "peers-list");
       }
-      updateStatus();
     });
 
-    // Socket event: a new peer joined the room (notify existing peers)
     socket.on("new_peer_joined", async (data) => {
-      const newPeerId = data.client_id;
-      const newRole = data.role;
-      console.log(`[WebRTC] New peer joined: ${newPeerId} (${newRole})`);
-      
-      // Only create connection if we should be the offerer (lower client_id)
-      if (shouldBeOfferer(clientId, newPeerId) && !peers[newPeerId]) {
-        const pc = createPeerConnection(newPeerId);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        console.log(`[WebRTC] Sending OFFER to newly joined peer ${newPeerId}`);
-        socket.emit("webrtc_signal", {
-          game_id: gameId,
-          from_id: clientId,
-          to_id: newPeerId,
-          role,
-          ...(includeParticipantId ? { participant_id: participantId } : {}),
-          description: pc.localDescription
-        });
-      }
-      updateStatus();
+      await connectToPeer(data.client_id, "new-peer");
     });
 
-    // Socket event: receive WebRTC signal from peer
+    socket.on("peer_left_voice", (data) => {
+      if (!data || data.client_id === clientId) return;
+      removePeer(data.client_id);
+    });
+
     socket.on("webrtc_signal", handleIncomingSignal);
 
     socket.on("game_ended", (data) => {
@@ -345,10 +452,29 @@
       stopVoice();
     });
 
-    setStatus("idle");
-    setButton(false);
+    socket.on("connect", () => {
+      if (voiceActive || localStream) {
+        startVoice().catch((err) => console.error("Voice rejoin failed:", err));
+      }
+    });
 
-    return { startVoice, stopVoice };
+    window.addEventListener("beforeunload", () => {
+      if (!voiceActive) return;
+      socket.emit("voice_leave", {
+        game_id: gameId,
+        client_id: clientId,
+        role,
+      });
+    });
+
+    updateMuteButton();
+    setStatus("connecting voice…");
+
+    if (autoJoin) {
+      startVoice().catch((err) => console.error("Auto voice join failed:", err));
+    }
+
+    return { startVoice, stopVoice, setMuted, toggleMute: () => setMuted(!isMuted) };
   }
 
   window.setupVoice = setupVoice;

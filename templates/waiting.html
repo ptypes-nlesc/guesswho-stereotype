@@ -136,10 +136,10 @@
 
         <button id="join-btn" class="join-btn" style="display: none;">Start het spel</button>
 
-        <div id="mic-check-section" class="mic-check-section" style="display: none;">
-            <h4>🎙️ Microfoon instellen</h4>
+        <div id="mic-check-section" class="mic-check-section">
+            <h4>🎙️ Microfoon instellen (verplicht)</h4>
             <p style="margin: 0; font-size: 0.95em; color: #555; text-align: center;">
-                Test je microfoon voordat het spel begint. Spraak start automatisch zodra de moderator het spel start.
+                Test je microfoon voordat je meedoet. Spraak verbindt automatisch zodra het spel start.
             </p>
             <button id="mic-check-btn" class="mic-check-btn" type="button">Microfoon testen</button>
             <div class="mic-level" aria-hidden="true">
@@ -167,17 +167,24 @@
             error: 'Microfoontest mislukt. Probeer opnieuw.',
         };
 
-        function showMicCheckSection() {
-            if (!micCheckSection) return;
-            micCheckSection.style.display = 'block';
-            MicCheck.bindMicCheckButton({
-                buttonEl: document.getElementById('mic-check-btn'),
-                statusEl: document.getElementById('mic-check-status'),
-                levelEl: document.getElementById('mic-level-bar'),
-                messages: micMessages,
-                successLabel: 'Microfoon opnieuw testen',
-            });
+        function updateJoinButtonState() {
+            const joinBtn = document.getElementById('join-btn');
+            if (!joinBtn || joinBtn.style.display === 'none') return;
+            const ready = MicCheck.isMicReady();
+            joinBtn.disabled = !ready;
+            joinBtn.title = ready ? '' : 'Test eerst je microfoon';
         }
+
+        MicCheck.bindMicCheckButton({
+            buttonEl: document.getElementById('mic-check-btn'),
+            statusEl: document.getElementById('mic-check-status'),
+            levelEl: document.getElementById('mic-level-bar'),
+            messages: micMessages,
+            successLabel: 'Microfoon opnieuw testen',
+            onReady: updateJoinButtonState,
+        });
+        document.addEventListener('gw-mic-ready', updateJoinButtonState);
+        updateJoinButtonState();
 
         async function checkStatus() {
             try {
@@ -193,7 +200,14 @@
                 const joinBtn = document.getElementById('join-btn');
 
                 if (data.status === 'in_game') {
-                    // Participant is already in a game - redirect
+                    if (!MicCheck.isMicReady()) {
+                        display.innerHTML = `
+                            <div class="status-message status-ready">
+                                🎮 Het spel is gestart.<br>Test eerst je microfoon om door te gaan.
+                            </div>
+                        `;
+                        return;
+                    }
                     clearInterval(checkInterval);
                     display.innerHTML = `
                         <div class="status-message status-open">
@@ -213,7 +227,7 @@
                     `;
                     if (!hasJoined) {
                         joinBtn.style.display = 'block';
-                        joinBtn.disabled = false;
+                        updateJoinButtonState();
                     }
                 } else if (data.status === 'ready') {
                     display.innerHTML = `
@@ -223,7 +237,6 @@
                         <div class="spinner"></div>
                     `;
                     joinBtn.style.display = 'none';
-                    if (participantId) showMicCheckSection();
                 } else if (data.status === 'closed') {
                     display.innerHTML = `
                         <div class="status-message status-closed">
@@ -253,6 +266,10 @@
 
         document.getElementById('join-btn').onclick = async () => {
             const joinBtn = document.getElementById('join-btn');
+            if (!MicCheck.isMicReady()) {
+                alert('Test eerst je microfoon voordat je meedoet.');
+                return;
+            }
             joinBtn.disabled = true;
             joinBtn.textContent = 'Meedoen';
 
@@ -280,7 +297,6 @@
                         <p>Nog ${2 - data.waiting_count} deelmenemer(s) nodig </p>
                     `;
                     joinBtn.style.display = 'none';
-                    showMicCheckSection();
                 } else if (data.status === 'in_game') {
                     // Token already used and participant in game
                     participantId = data.participant_id;

@@ -67,9 +67,8 @@
 
         {% if not read_only %}
         <div class="voice-controls" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
-            <button id="voice-toggle">Join voice</button>
-            <span id="voice-status" style="color: #555;">idle</span>
-            <audio id="remote-audio" hidden></audio>
+            <button id="voice-mute" type="button" disabled>Mute</button>
+            <span id="voice-status" style="color: #555;">connecting voice…</span>
         </div>
         {% endif %}
 
@@ -88,7 +87,20 @@
 
         // --- Socket setup ---------------------------------------------
         const socket = io();
-        socket.emit("join", {game_id: gameId, role: socketRole});
+        const socketReady = new Promise((resolve, reject) => {
+            function joinRoom() {
+                socket.emit("join", {game_id: gameId, role: socketRole}, (ack) => {
+                    if (ack && ack.status === "error") {
+                        console.error("Socket join failed:", ack.message);
+                        reject(new Error(ack.message));
+                        return;
+                    }
+                    resolve(ack || {status: "ok"});
+                });
+            }
+            if (socket.connected) joinRoom();
+            else socket.once("connect", joinRoom);
+        });
 
         const transcriptDiv = document.getElementById("transcript");
         const chatInput = document.getElementById("chat-input");
@@ -147,9 +159,9 @@
                         if (!readOnly) {
                             document.getElementById('chat-input').disabled = true;
                             document.getElementById('send-chat').disabled = true;
-                            document.getElementById('voice-toggle').disabled = true;
-                            document.getElementById('voice-toggle').style.opacity = '0.6';
-                            document.getElementById('voice-toggle').style.cursor = 'not-allowed';
+                            document.getElementById('voice-mute').disabled = true;
+                            document.getElementById('voice-mute').style.opacity = '0.6';
+                            document.getElementById('voice-mute').style.cursor = 'not-allowed';
                             const chatBar = document.querySelector('.chat-bar');
                             if (chatBar) chatBar.style.opacity = '0.6';
                             document.getElementById('send-chat').style.cursor = 'not-allowed';
@@ -275,15 +287,13 @@
         if (!readOnly) {
             voice = setupVoice({
                 socket,
+                socketReady,
                 gameId,
                 role: "moderator",
-                buttonEl: document.getElementById("voice-toggle"),
+                muteButtonEl: document.getElementById("voice-mute"),
                 statusEl: document.getElementById("voice-status"),
-                remoteAudioEl: document.getElementById("remote-audio"),
+                autoJoin: true,
             });
-            if (MicCheck.isMicReady()) {
-                voice.startVoice();
-            }
         }
 
         socket.on('recording_start', (data) => {

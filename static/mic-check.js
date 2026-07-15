@@ -120,6 +120,10 @@
         buttonEl.textContent = opts.successLabel || buttonEl.textContent;
         buttonEl.disabled = false;
       }
+      if (typeof opts.onReady === "function") {
+        opts.onReady({ ok: true, heardInput });
+      }
+      document.dispatchEvent(new CustomEvent("gw-mic-ready"));
       return { ok: true, heardInput };
     } catch (err) {
       cleanup();
@@ -147,10 +151,19 @@
     }
   }
 
+  function requireMicReady(onReady) {
+    if (isMicReady()) {
+      if (typeof onReady === "function") onReady();
+      return true;
+    }
+    return false;
+  }
+
   window.MicCheck = {
     isMicReady,
     setMicReady,
     runMicCheck,
     bindMicCheckButton,
+    requireMicReady,
   };
 })();
