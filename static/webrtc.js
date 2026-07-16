@@ -7,13 +7,20 @@
 // open pages with ?voice_debug=1 to loosen mic processing and log levels.
 
 (function () {
-  // Keep iceServers small: 5+ slows discovery and triggers browser warnings.
+  // Keep iceServers under 5 URLs (browser warning). Include TURN/TCP for
+  // restricted networks (VMs, campus firewalls) where host/srflx ICE fails.
+  const TURN_USER = "openrelayproject";
+  const TURN_PASS = "openrelayproject";
   const ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
     {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: TURN_USER,
+      credential: TURN_PASS,
     },
   ];
 
@@ -72,6 +79,8 @@
     let ignoreOffer = {};
     let signalChain = {};
     let statsTimers = {};
+    let iceRestartAttempts = {};
+    let lastIceFailure = null;
     let audioUnlocked = false;
     let audioBlocked = false;
     let voiceActive = false;
@@ -249,7 +258,8 @@
     async function sendOffer(peerId, reason) {
       const pc = peers[peerId];
       if (!pc || !localStream) return;
-      if (pc.signalingState !== "stable") {
+      const iceRestart = reason === "ice-restart";
+      if (!iceRestart && pc.signalingState !== "stable") {
         console.log(`[WebRTC] Skip offer to ${peerId} (${reason}): state=${pc.signalingState}`);
         return;
       }
@@ -257,7 +267,8 @@
       addLocalTracksToPeer(pc);
       makingOffer[peerId] = true;
       try {
-        await pc.setLocalDescription(await pc.createOffer());
+        const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+        await pc.setLocalDescription(offer);
         console.log(`[WebRTC] Sending OFFER (${reason}) from ${clientId} to ${peerId}`);
         socket.emit(
           "webrtc_signal",
@@ -268,6 +279,41 @@
         );
       } finally {
         makingOffer[peerId] = false;
+      }
+    }
+
+    async function logIceDiagnostics(peerId, pc) {
+      console.warn(`[WebRTC] ICE diagnostics for ${peerId}`, {
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        iceGatheringState: pc.iceGatheringState,
+        signalingState: pc.signalingState,
+      });
+      try {
+        const report = await pc.getStats();
+        report.forEach((r) => {
+          if (r.type === "local-candidate" || r.type === "remote-candidate") {
+            console.warn(`[WebRTC] ${r.type}`, {
+              peer: peerId,
+              candidateType: r.candidateType,
+              protocol: r.protocol,
+              address: r.address || r.ip,
+              port: r.port,
+              url: r.url,
+            });
+          }
+          if (r.type === "candidate-pair") {
+            console.warn(`[WebRTC] candidate-pair`, {
+              peer: peerId,
+              state: r.state,
+              nominated: r.nominated,
+              local: r.localCandidateId,
+              remote: r.remoteCandidateId,
+            });
+          }
+        });
+      } catch (err) {
+        console.warn(`[WebRTC] getStats failed for ${peerId}`, err);
       }
     }
 
@@ -337,6 +383,7 @@
       delete makingOffer[peerId];
       delete ignoreOffer[peerId];
       delete signalChain[peerId];
+      delete iceRestartAttempts[peerId];
       updateStatus();
     }
 
@@ -403,7 +450,19 @@
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
       pc.onicecandidate = (event) => {
-        if (!event.candidate) return;
+        if (!event.candidate) {
+          console.log(`[WebRTC] ICE gathering complete for ${peerId}`);
+          return;
+        }
+        const c = event.candidate;
+        // host/srflx/relay — if you never see "relay", TURN is not working.
+        console.log(`[WebRTC] local ICE → ${peerId}`, {
+          type: c.type,
+          protocol: c.protocol,
+          address: c.address,
+          port: c.port,
+          candidate: c.candidate,
+        });
         socket.emit(
           "webrtc_signal",
           signalPayload({
@@ -413,12 +472,49 @@
         );
       };
 
+      pc.onicecandidateerror = (event) => {
+        console.warn(`[WebRTC] ICE candidate error for ${peerId}`, {
+          url: event.url,
+          errorCode: event.errorCode,
+          errorText: event.errorText,
+          hostCandidate: event.hostCandidate,
+        });
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(`${peerId} iceConnectionState: ${pc.iceConnectionState}`);
+      };
+
       pc.ontrack = (event) => attachRemoteTrack(peerId, event);
 
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState || "idle";
         console.log(`${peerId} connection state: ${state}`);
-        if (state === "failed" || state === "closed") {
+        if (state === "failed") {
+          logIceDiagnostics(peerId, pc);
+          // One ICE restart before giving up (helps flaky NAT / TURN).
+          if (!iceRestartAttempts[peerId] && shouldBeOfferer(clientId, peerId)) {
+            iceRestartAttempts[peerId] = 1;
+            lastIceFailure = "ICE failed — retrying…";
+            updateStatus();
+            enqueueSignal(peerId, async () => {
+              try {
+                await sendOffer(peerId, "ice-restart");
+              } catch (err) {
+                console.error(`[WebRTC] ICE restart failed for ${peerId}:`, err);
+                lastIceFailure =
+                  "ICE failed (firewall/NAT). Need working TURN relay.";
+                removePeer(peerId);
+              }
+            });
+            return;
+          }
+          lastIceFailure =
+            "ICE failed (firewall/NAT). Need working TURN relay.";
+          removePeer(peerId);
+          return;
+        }
+        if (state === "closed") {
           removePeer(peerId);
           return;
         }
@@ -428,11 +524,15 @@
             if (!current || current !== pc) return;
             const s = pc.connectionState || "idle";
             if (s === "disconnected" || s === "failed" || s === "closed") {
+              lastIceFailure =
+                "ICE disconnected. Check network / TURN.";
               removePeer(peerId);
             }
           }, 3000);
         }
         if (state === "connected") {
+          lastIceFailure = null;
+          iceRestartAttempts[peerId] = 0;
           startStats(peerId, pc);
           playAllRemoteAudio().then(() => updateStatus());
         }
@@ -469,11 +569,15 @@
       }
       const peerIds = Object.keys(peers);
       if (peerIds.length === 0) {
-        setStatus(
-          isMuted
-            ? "voice on (muted) — waiting for peers…"
-            : "voice on — waiting for peers…"
-        );
+        if (lastIceFailure) {
+          setStatus(lastIceFailure);
+        } else {
+          setStatus(
+            isMuted
+              ? "voice on (muted) — waiting for peers…"
+              : "voice on — waiting for peers…"
+          );
+        }
         updateMuteButton();
         return;
       }
@@ -686,6 +790,8 @@
       makingOffer = {};
       ignoreOffer = {};
       signalChain = {};
+      iceRestartAttempts = {};
+      lastIceFailure = null;
 
       if (localStream) {
         localStream.getTracks().forEach((t) => t.stop());
