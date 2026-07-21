@@ -402,12 +402,37 @@ def remove_voice_participant(game_id, client_id):
 def clear_voice_participants(game_id):
     """Remove all voice participants for a game."""
     VOICE_PARTICIPANTS.pop(game_id, None)
+    stale_sids = [
+        sid for sid, (gid, _) in list(VOICE_SOCKET_INDEX.items()) if gid == game_id
+    ]
+    for sid in stale_sids:
+        VOICE_SOCKET_INDEX.pop(sid, None)
     if not get_redis():
         return
     try:
         get_redis().delete(f"voice:{game_id}")
     except Exception as e:
         print(f"Error clearing voice participants: {e}")
+
+
+def prune_stale_voice_participants(game_id):
+    """Drop voice entries whose Socket.IO session is no longer connected."""
+    voice_participants = get_voice_participants(game_id)
+    if not voice_participants:
+        return
+
+    manager = socketio.server.manager
+    removed = []
+    for client_id, info in list(voice_participants.items()):
+        sid = info.get("socket_id")
+        if not sid or not manager.is_connected(sid, "/"):
+            remove_voice_participant(game_id, client_id)
+            if sid:
+                VOICE_SOCKET_INDEX.pop(sid, None)
+            removed.append(client_id)
+
+    if removed:
+        print(f"🧹 Pruned stale voice participants for {game_id}: {removed}")
 
 # CURRENT_SESSION_GAME_ID helper
 def get_current_session_game_id():
@@ -437,6 +462,8 @@ def set_current_session_game_id(game_id):
 
 # Track active voice participants per game: {game_id: {client_id: {role, socket_id}}}
 VOICE_PARTICIPANTS = {}
+# Reverse lookup for disconnect cleanup: {socket_id: (game_id, client_id)}
+VOICE_SOCKET_INDEX = {}
 
 # Role binding store: {(game_id, participant_id): role}
 PARTICIPANT_ROLES = {}
@@ -1638,7 +1665,8 @@ def moderator_start_game():
     game_state.setdefault('round_number', 1)
     game_state.setdefault('round_phase', 'ACTIVE')
     set_game_state(moderator_game_id, game_state)
-    
+    clear_voice_participants(moderator_game_id)
+
     # Update global for participant joins
     set_current_session_game_id(moderator_game_id)
     
@@ -1807,7 +1835,8 @@ def moderator_reset_session():
     # Clear the global session tracker so participants see "entry closed"
     set_current_session_game_id(None)
     session['moderator_session_game_id'] = None
-    
+    clear_voice_participants(moderator_game_id)
+
     record_event("system", "session_reset", moderator_game_id)
     print(f"🔄 Reset session {moderator_game_id}")
     
@@ -2028,6 +2057,7 @@ def handle_join(data):
     except Exception as e:
         print(f"Failed to replay join roles: {e}")
     print(f"👥 {role} joined room {room}")
+    return {"status": "ok"}
 
 
 @socketio.on("chat")
@@ -2093,10 +2123,14 @@ def handle_voice_join(data):
         except Exception as e:
             print(f"Socket voice_join: DB role binding skipped for game {game_id}: {e}")
 
+    prune_stale_voice_participants(game_id)
+
     add_voice_participant(game_id, client_id, {"role": role, "socket_id": request.sid})
+    VOICE_SOCKET_INDEX[request.sid] = (game_id, client_id)
     record_event(role, "voice_join", game_id, participant_id=actor_participant_id)
 
     # Send the list of existing peers to the new joiner
+    prune_stale_voice_participants(game_id)
     voice_participants = get_voice_participants(game_id)
     peers = [
         {"client_id": cid, "role": info["role"]}
@@ -2109,7 +2143,45 @@ def handle_voice_join(data):
     socketio.emit("new_peer_joined", {"client_id": client_id, "role": role}, to=f"game:{game_id}", skip_sid=request.sid)
     
     print(f"🎙️ {role} (client {client_id}) joined voice in game {game_id}")
+    return {"status": "ok", "peer_count": len(peers)}
+
+
+@socketio.on("voice_leave")
+def handle_voice_leave(data):
+    """Participant leaves the voice mesh for a game."""
+    game_id = data.get("game_id")
+    client_id = data.get("client_id")
+    role = data.get("role", "unknown")
+
+    if not game_id or not client_id:
+        return {"status": "error", "message": "game_id and client_id required"}
+
+    remove_voice_participant(game_id, client_id)
+    VOICE_SOCKET_INDEX.pop(request.sid, None)
+    record_event(role, "voice_leave", game_id)
+    socketio.emit(
+        "peer_left_voice",
+        {"client_id": client_id, "game_id": game_id},
+        to=f"game:{game_id}",
+    )
+    print(f"🔇 {role} (client {client_id}) left voice in game {game_id}")
     return {"status": "ok"}
+
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    """Clean up voice participant state when a socket disconnects."""
+    mapping = VOICE_SOCKET_INDEX.pop(request.sid, None)
+    if not mapping:
+        return
+    game_id, client_id = mapping
+    remove_voice_participant(game_id, client_id)
+    socketio.emit(
+        "peer_left_voice",
+        {"client_id": client_id, "game_id": game_id},
+        to=f"game:{game_id}",
+    )
+    print(f"🔌 Voice participant disconnected: client {client_id} in game {game_id}")
 
 
 @socketio.on("webrtc_signal")
@@ -2150,11 +2222,17 @@ def handle_webrtc_signal(data):
     record_event(role, "webrtc_signal", game_id, participant_id=actor_participant_id)
 
     # Route to specific peer's socket
+    prune_stale_voice_participants(game_id)
     voice_participants = get_voice_participants(game_id)
     if to_id in voice_participants:
         target_socket = voice_participants[to_id]["socket_id"]
-        socketio.emit("webrtc_signal", payload, to=target_socket)
-        print(f"Signal from {from_id} to {to_id} in game {game_id}")
+        if socketio.server.manager.is_connected(target_socket, "/"):
+            socketio.emit("webrtc_signal", payload, to=target_socket)
+            print(f"Signal from {from_id} to {to_id} in game {game_id}")
+        else:
+            remove_voice_participant(game_id, to_id)
+            VOICE_SOCKET_INDEX.pop(target_socket, None)
+            print(f"Could not route signal: stale socket for {to_id} in game {game_id}")
     else:
         print(f"Could not route signal: to_id {to_id} not found in game {game_id}")
 

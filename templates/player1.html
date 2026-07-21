@@ -35,9 +35,8 @@
         </div>
 
         <div class="voice-controls" style="margin-top: 10px;">
-            <button id="voice-toggle">Join voice</button>
-            <span id="voice-status" style="margin-left: 8px; color: #555;">idle</span>
-            <audio id="remote-audio" hidden></audio>
+            <button id="voice-mute" type="button" disabled>Mute</button>
+            <span id="voice-status" style="margin-left: 8px; color: #555;">spraak verbinden…</span>
         </div>
     </main>
 
@@ -50,6 +49,20 @@
         const transcriptDiv = document.getElementById('transcript');
         const chatInput = document.getElementById('chat-input');
         const socket = io();
+        const socketReady = new Promise((resolve, reject) => {
+            function joinRoom() {
+                socket.emit('join', {game_id: gameId, role: 'player1', participant_id: participantId}, (ack) => {
+                    if (ack && ack.status === 'error') {
+                        console.error('Socket join failed:', ack.message);
+                        reject(new Error(ack.message));
+                        return;
+                    }
+                    resolve(ack || {status: 'ok'});
+                });
+            }
+            if (socket.connected) joinRoom();
+            else socket.once('connect', joinRoom);
+        });
 
         function appendRoundCompleteMessage(message = 'Einde van de ronde') {
             const hasMessage = Array.from(transcriptDiv.querySelectorAll('[data-round-complete-message]'))
@@ -63,8 +76,6 @@
             transcriptDiv.appendChild(div);
             transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
         }
-
-        socket.emit('join', {game_id: gameId, role: 'player1', participant_id: participantId});
 
         // Track seen joins by role to avoid duplicate join messages in UI
         const seenJoins = new Set();
@@ -117,9 +128,9 @@
                         // Disable interactions
                         document.getElementById('chat-input').disabled = true;
                         document.getElementById('send-btn').disabled = true;
-                        document.getElementById('voice-toggle').disabled = true;
-                        document.getElementById('voice-toggle').style.opacity = '0.6';
-                        document.getElementById('voice-toggle').style.cursor = 'not-allowed';
+                        document.getElementById('voice-mute').disabled = true;
+                        document.getElementById('voice-mute').style.opacity = '0.6';
+                        document.getElementById('voice-mute').style.cursor = 'not-allowed';
                         
                         // Make chat bar visually inactive
                         document.querySelector('.chat-bar').style.opacity = '0.6';
@@ -231,15 +242,14 @@
         // --- Voice (WebRTC) -------------------------------------------
         voice = setupVoice({
             socket,
+            socketReady,
             gameId,
             role: 'player1',
-            buttonEl: document.getElementById('voice-toggle'),
+            muteButtonEl: document.getElementById('voice-mute'),
             statusEl: document.getElementById('voice-status'),
-            remoteAudioEl: document.getElementById('remote-audio')
+            muteLabels: { active: 'Mute', muted: 'Unmute', pending: 'Mute' },
+            autoJoin: true,
         });
-        if (MicCheck.isMicReady()) {
-            voice.startVoice();
-        }
 
         socket.on('recording_start', (data) => {
             console.log('[Recording] started', data);
