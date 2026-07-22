@@ -42,9 +42,7 @@ Development milestones for the *Xposed* web application (Guess Who–style resea
 
 ## Phase 3 – Live Audio & Moderator-Controlled Recording
 
-Detailed implementation plan: [AUDIO_RECORDING_PLAN.md](AUDIO_RECORDING_PLAN.md).
-
-### Live voice (WebRTC mesh) — done
+### Live voice (WebRTC mesh) 
 
 - [x] `audio_events` table in SQL schema  
 - [x] 3-way WebRTC mesh (moderator + player1 + player2)  
@@ -54,25 +52,35 @@ Detailed implementation plan: [AUDIO_RECORDING_PLAN.md](AUDIO_RECORDING_PLAN.md)
 - [x] Institutional coturn TURN (`TURN_SERVER` / `TURN_SECRET`) + public fallback for local dev  
 - [x] `GET /api/webrtc/ice-servers` for browser ICE config  
 
-### Moderator recording control — done
+### Moderator recording control
 
 - [x] Start/Stop Recording on moderator dashboard  
 - [x] `POST /moderator/control/recording/start` and `…/stop`  
-- [x] Broadcast `recording_start` / `recording_stop` (with `recording_id`, `server_ts`)  
+- [x] Broadcast `recording_start` / `recording_stop` (`recording_id`, `server_ts`)  
 - [x] Recording state in game state / Redis  
 - [x] pytest coverage (`tests/test_recording_control.py`)  
 
-### Audio capture & storage — **next**
+### Recording model (design)
 
-- [ ] **Client MediaRecorder** on player1 / player2 / moderator (local mic only)  
+Each browser records **its own microphone only** (not remote WebRTC audio).
+
+### Audio capture & storage — in progress
+
+**Capture:**
+
+- [ ] MediaRecorder on player1 / player2 / moderator (local mic)  
 - [ ] Auto-start / stop on `recording_start` / `recording_stop`  
-- [ ] Capture sync timestamps on the client  
-- [ ] `POST /audio/upload` + files under `AUDIO_STORAGE_DIR`  
-- [ ] Write `audio_events` rows with paths and sync metadata  
-- [ ] Staging storage path / permissions on the VM  
+- [ ] Capture `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`  
+- [ ] Recording indicator UI; handle voice not joined / refresh mid-session  
 
-**Immediate next implementation branch:** `feature/media-recorder`  
-(see [AUDIO_RECORDING_PLAN.md](AUDIO_RECORDING_PLAN.md) § Branch 2).
+**Upload & storage:**
+
+- [ ] `POST /audio/upload` (multipart: file + metadata)  
+- [ ] Path pattern: `{game_id}/{recording_id}_{role}_{participant_id}.webm`  
+- [ ] Env `AUDIO_STORAGE_DIR` (local `data/audio/`; staging e.g. `/data/xposed/shared/audio/`)  
+- [ ] Insert `audio_events` with path + start/end times  
+- [ ] Reject uploads missing required timestamps  
+- [ ] Staging directory, deploy env, full-session smoke test  
 
 ---
 
@@ -95,17 +103,17 @@ Detailed implementation plan: [AUDIO_RECORDING_PLAN.md](AUDIO_RECORDING_PLAN.md)
 - [ ] Speech-to-text (e.g. Whisper) on saved stems  
 - [ ] Researcher analytics dashboard  
 - [ ] Export analysis-ready datasets (events + audio + transcripts)  
+- [ ] Offline multi-stem alignment script (`scripts/align_recordings.py`)  
 - [ ] Expand automated tests (more pytest + optional Playwright)  
 - [ ] Multiple concurrent moderators / sessions  
-- [ ] Offline alignment script for multi-stem sync (`scripts/align_recordings.py`)  
 
 ---
 
-## Suggested order of work (near term)
+## Suggested order of work
 
 1. **`feature/media-recorder`** — record local mic on all roles when moderator starts recording  
 2. **`feature/audio-upload`** — upload webm + timestamps; persist `audio_events`  
-3. **`chore/audio-storage-staging`** — VM directory, env, smoke test full pipeline  
+3. **`chore/audio-storage-staging`** — VM directory, env, full pipeline smoke test  
 4. Hardening / reconnection and research tooling as needed  
 
 ---
