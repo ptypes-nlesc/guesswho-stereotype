@@ -21,7 +21,6 @@ nav:
   - User Guide: USAGE_GUIDE.md
   - API Reference: api.md
   - Roadmap: ROADMAP.md
-  - Audio & Recording Plan: AUDIO_RECORDING_PLAN.md
 
 markdown_extensions:
   - admonition
