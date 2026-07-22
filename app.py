@@ -36,6 +36,7 @@ from auth import (
     is_staff,
     set_staff_session,
 )
+from turn_config import build_ice_config
 
 load_dotenv()
 
@@ -2235,6 +2236,44 @@ def handle_webrtc_signal(data):
             print(f"Could not route signal: stale socket for {to_id} in game {game_id}")
     else:
         print(f"Could not route signal: to_id {to_id} not found in game {game_id}")
+
+
+# ---------------------------------------------------------------------
+# API: WebRTC ICE / TURN credentials
+# ---------------------------------------------------------------------
+@app.route("/api/webrtc/ice-servers")
+def webrtc_ice_servers():
+    """Return ICE servers for the browser (never includes TURN_SECRET).
+
+    Optional query params:
+    - user_id: included in minted TURN username for debugging (e.g. role)
+
+    Modes (see turn_config.build_ice_config):
+    - coturn: TURN_SERVER + TURN_SECRET set (time-limited credentials)
+    - public_fallback: secret unset and TURN_USE_PUBLIC_FALLBACK enabled (local)
+    - stun_only: no secret and public fallback disabled
+    """
+    user_id = request.args.get("user_id") or request.args.get("role")
+    try:
+        config = build_ice_config(user_id=user_id)
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    # Do not log credentials; mode/server only for ops.
+    print(
+        f"WebRTC ICE config mode={config.get('mode')} "
+        f"server={config.get('server')} policy={config.get('iceTransportPolicy')}"
+    )
+    return jsonify(
+        {
+            "status": "ok",
+            "mode": config["mode"],
+            "iceServers": config["iceServers"],
+            "iceTransportPolicy": config["iceTransportPolicy"],
+            "ttl": config.get("ttl"),
+            "expires_at": config.get("expires_at"),
+        }
+    )
 
 
 # ---------------------------------------------------------------------
