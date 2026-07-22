@@ -7,11 +7,9 @@
 // open pages with ?voice_debug=1 to loosen mic processing and log levels.
 
 (function () {
-  // Keep iceServers under 5 URLs (browser warning). Include TURN/TCP for
-  // restricted networks (VMs, campus firewalls) where host/srflx ICE fails.
-  const TURN_USER = "openrelayproject";
-  const TURN_PASS = "openrelayproject";
-  const ICE_SERVERS = [
+  // Fallback when /api/webrtc/ice-servers is unreachable (offline / old deploy).
+  // Prefer server-issued coturn credentials when TURN_SERVER + TURN_SECRET are set.
+  const PUBLIC_FALLBACK_ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
     {
       urls: [
@@ -19,8 +17,8 @@
         "turn:openrelay.metered.ca:443",
         "turn:openrelay.metered.ca:443?transport=tcp",
       ],
-      username: TURN_USER,
-      credential: TURN_PASS,
+      username: "openrelayproject",
+      credential: "openrelayproject",
     },
   ];
 
@@ -45,6 +43,51 @@
       opts.muteLabels || {}
     );
     const debug = voiceDebugEnabled();
+
+    // Loaded from GET /api/webrtc/ice-servers (coturn or public fallback).
+    let iceServers = PUBLIC_FALLBACK_ICE_SERVERS;
+    let iceTransportPolicy = "all";
+    let iceConfigMode = "public_fallback";
+    let iceConfigPromise = null;
+
+    async function loadIceConfig() {
+      if (iceConfigPromise) return iceConfigPromise;
+      iceConfigPromise = (async () => {
+        try {
+          const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+          const res = await fetch(`/api/webrtc/ice-servers${qs}`, {
+            credentials: "same-origin",
+            cache: "no-store",
+          });
+          if (!res.ok) {
+            throw new Error(`ICE config HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          if (!data || data.status === "error" || !Array.isArray(data.iceServers)) {
+            throw new Error((data && data.message) || "invalid ICE config");
+          }
+          iceServers = data.iceServers;
+          iceTransportPolicy =
+            data.iceTransportPolicy === "relay" ? "relay" : "all";
+          iceConfigMode = data.mode || "unknown";
+          console.log(`[WebRTC] ICE config loaded mode=${iceConfigMode}`, {
+            policy: iceTransportPolicy,
+            serverCount: iceServers.length,
+            ttl: data.ttl,
+          });
+        } catch (err) {
+          console.warn(
+            "[WebRTC] Failed to load ICE config from server; using public fallback",
+            err
+          );
+          iceServers = PUBLIC_FALLBACK_ICE_SERVERS;
+          iceTransportPolicy = "all";
+          iceConfigMode = "public_fallback_client";
+        }
+        return { iceServers, iceTransportPolicy, iceConfigMode };
+      })();
+      return iceConfigPromise;
+    }
 
     const participantStorageKey = `participant_id_${gameId}_${role}`;
     let participantId = localStorage.getItem(participantStorageKey);
@@ -447,7 +490,10 @@
     function createPeerConnection(peerId) {
       if (peers[peerId]) return peers[peerId];
 
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({
+        iceServers,
+        iceTransportPolicy,
+      });
 
       pc.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -712,6 +758,9 @@
           updateMuteButton();
           return;
         }
+
+        // Resolve ICE/TURN before joining the mesh (coturn creds or public fallback).
+        await loadIceConfig();
 
         if (!localStream) {
           // Same-machine multi-tab loopback is often silenced by AEC.
