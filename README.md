@@ -1,75 +1,92 @@
 ![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)
-![Flask](https://img.shields.io/badge/Flask-2.x-lightgrey?logo=flask)
-![Socket.IO](https://img.shields.io/badge/Socket.IO-Realtime--Communication-green?logo=socketdotio)
+![Flask](https://img.shields.io/badge/Flask-3.x-lightgrey?logo=flask)
+![Socket.IO](https://img.shields.io/badge/Socket.IO-Realtime-green?logo=socketdotio)
 ![Redis](https://img.shields.io/badge/Redis-Cache-red?logo=redis)
 ![License](https://img.shields.io/badge/License-Apache%202.0-orange)
 [![CI](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml/badge.svg)](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml)
 
-## 📖 Overview
+# GuessWho Stereotype (Xposed)
 
-This web application is a deduction-style board game designed to explore how people express stereotypes through reasoning and decision-making. 
+Research web app for studying how people express stereotypes in a two-player deduction game (Guess Who–style). Moderators run sessions; participants join via one-time tokens. Chat, voice, and game events are logged for analysis.
 
-**How it works:** Two players face off:
-- **Player 1 (Secret Holder):** Draws a secret target character and answers Player 2's questions
-- **Player 2 (Guesser):** Sees a grid of 12 characters and asks feature-based questions to deduce the secret character. With each answer, Player 2 eliminates non-matching characters from the board.
+## How it works
 
-When the game ends (i.e., one card remains), the roles swap for the next round. Players communicate via real-time text chat and voice, with all interactions automatically recorded and stored in a database for research analysis. A moderator observes the session and can ask clarifying questions to understand the players' reasoning patterns.
+- **Player 1 (secret holder)** draws a secret character and answers questions.  
+- **Player 2 (guesser)** sees a grid of characters, asks feature-based questions, and eliminates cards.  
+- After round 1, **roles swap**. A **moderator** observes, can chat, and controls session flow and recording.  
+- Optional **read-only auditor** staff role for low-privilege access.
 
----
+## Features (current)
 
-## 🛠️ Tech Stack
+| Area | What exists |
+|------|-------------|
+| **Sessions** | Moderator dashboard: open entry, tokens, start / end / reset, role swap |
+| **Access** | One-time join tokens; staff login (`MODERATOR_PASSWORD`, `AUDITOR_PASSWORD`) |
+| **Realtime** | Socket.IO chat, game events, voice signaling |
+| **Voice** | 3-way WebRTC mesh; mic check; auto-join; mute; coturn TURN via `GET /api/webrtc/ice-servers` |
+| **Recording control** | Moderator start/stop; `recording_start` / `recording_stop` to all roles (client capture/upload still planned) |
+| **Data** | MySQL/MariaDB persistence; Redis for live game/voice state |
+| **Deploy** | Gunicorn + gevent WebSocket worker; reverse-proxy friendly (ProxyFix) |
 
-| Layer              | Technology                            |
-| ------------------ | ------------------------------------- |
-| **Frontend**       | HTML + JavaScript (Socket.IO)         |
-| **Backend**        | Flask (Python 3.13) + Flask-SocketIO |
-| **Database**       | MySQL / MariaDB      |
-| **Cache/Session**  | Redis                |
-| **Deployment**     | Local (MVP) → AKS later       |
-| **Audio** | WebRTC              |
+Roadmap and next steps (e.g. MediaRecorder + audio upload): [docs/ROADMAP.md](docs/ROADMAP.md).  
+User guide, API, and more: [docs/](docs/) (MkDocs).
 
----
+## Tech stack
 
-## 🚀 How to Run / Test
+| Layer | Technology |
+|-------|------------|
+| Frontend | HTML, JavaScript (Socket.IO client, WebRTC) |
+| Backend | Flask 3 + Flask-SocketIO |
+| Database | MySQL / MariaDB |
+| Live state | Redis (optional in-memory fallback where implemented) |
+| Voice | WebRTC mesh; TURN (coturn) or public ICE fallback |
+| Runtime | Gunicorn + `GeventWebSocketWorker` |
 
-### 1. Set up environment
+## Run locally (minimal)
+
+**Needs:** Python 3.13+, MySQL/MariaDB, Redis (recommended).
+
 ```bash
-
 python -m venv venv
-source venv/bin/activate  
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure MySQL/MariaDB
-Create a `.env` file with the required settings.
+Create a `.env` in the project root (required at minimum):
 
-To connect with the CLI using the current configuration:
+```env
+SECRET_KEY=change-me
+MODERATOR_PASSWORD=change-me
+# DB_* or DATABASE_URL — see docs / deploy .env examples
+# REDIS_HOST=localhost
+# Optional voice: omit TURN_* for public ICE fallback; set TURN_SERVER + TURN_SECRET for coturn
+```
 
 ```bash
-mysql -h localhost -P 3306 -u xposed_user -p xposed_db
+gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker \
+  -w 1 --bind 127.0.0.1:5000 --log-level info wsgi:app
 ```
 
-### 3. Start the server
+Open **http://127.0.0.1:5000/** — staff login → dashboard → open entry / tokens → participants on `/join` → start game.
+
+Voice and full staging deploy (Apache, coturn, WireGuard/GSA) are covered in the docs and environment-specific notes, not here.
+
+## Tests
+
 ```bash
-python app.py
+pytest -q
 ```
-### 4. Open the main index page  
 
-```
-http://127.0.0.1:5000/
-```
-**Moderator logs in** using the password and accesses the dashboard.
+CI runs the same suite via GitHub Actions.
 
-**Moderator workflow:**
-- Click **"Open Entry"** to allow participants to join
-- Participants join via the waiting page: `http://127.0.0.1:5000/join`
-- Once 2 participants have joined, click **"Start Game"**
-- Monitor the game session in real-time
-- Click **"Swap Roles"** when first round is completed to swap the roles
-- Click **"End Game"** when finished
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).
 
 ---
 
-<img src="static/example1.png" alt="GuessWho Stereotype Research Game Logo" width="400">
-<img src="static/example2.png" alt="GuessWho Stereotype Research Game Logo" width="400">
-<img src="static/example3.png" alt="GuessWho Stereotype Research Game Logo" width="400">
+<p>
+  <img src="static/example1.png" alt="Game UI example" width="280">
+  <img src="static/example2.png" alt="Game UI example" width="280">
+  <img src="static/example3.png" alt="Game UI example" width="280">
+</p>
