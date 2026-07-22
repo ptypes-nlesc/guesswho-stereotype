@@ -108,6 +108,21 @@ This page summarizes HTTP routes and Socket.IO events exposed by the application
   - Query: game_id, optional limit, optional type=all|events|chat
   - Returns combined or filtered transcript output.
 
+### WebRTC ICE / TURN
+
+- GET /api/webrtc/ice-servers
+  - Optional query: `user_id` or `role` (embedded in minted TURN username)
+  - Returns browser-safe ICE config (never includes `TURN_SECRET`):
+    - `mode`: `coturn` | `public_fallback` | `stun_only`
+    - `iceServers`: RTCIceServer list
+    - `iceTransportPolicy`: `all` | `relay`
+    - `ttl` / `expires_at`: present in `coturn` mode
+  - **Remote (coturn):** set `TURN_SERVER`, `TURN_PORT`, `TURN_SECRET` (same as
+    coturn `static-auth-secret`) in server env.
+  - **Local:** leave secret unset → public STUN/TURN fallback for LAN tests.
+  - Optional env: `TURN_USE_PUBLIC_FALLBACK`, `TURN_TTL_SECONDS`,
+    `TURN_TRANSPORTS`, `TURN_INCLUDE_PUBLIC_STUN`, `ICE_TRANSPORT_POLICY`.
+
 ## Socket.IO Events
 
 ### Client -> Server
