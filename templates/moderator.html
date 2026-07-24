@@ -8,6 +8,7 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
     <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
+    <script src="{{ url_for('static', filename='recorder.js') }}"></script>
     <script src="{{ url_for('static', filename='endgame.js') }}"></script>
 </head>
 
@@ -69,6 +70,7 @@
         <div class="voice-controls" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
             <button id="voice-mute" type="button" disabled>Mute</button>
             <span id="voice-status" style="color: #555;">connecting voice…</span>
+            <span id="recording-status"></span>
         </div>
         {% endif %}
 
@@ -294,14 +296,18 @@
                 statusEl: document.getElementById("voice-status"),
                 autoJoin: true,
             });
-        }
 
-        socket.on('recording_start', (data) => {
-            console.log('[Recording] started', data);
-        });
-        socket.on('recording_stop', (data) => {
-            console.log('[Recording] stopped', data);
-        });
+            const sessionRecorder = createSessionRecorder({
+                socket,
+                gameId,
+                role: "moderator",
+                participantId: null,
+                getLocalStream: () => voice && voice.getLocalStream(),
+                ensureLocalStream: () => voice && voice.ensureLocalStream(),
+                statusEl: document.getElementById("recording-status"),
+            });
+            window.sessionRecorder = sessionRecorder;
+        }
     </script>
 </body>
 

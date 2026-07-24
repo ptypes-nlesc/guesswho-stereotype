@@ -1256,10 +1256,15 @@ def game_status():
             "message": "This game session is no longer active"
         })
 
+    recording_active = bool(game_state.get("recording_active"))
     return jsonify({
         "game_id": game_id,
         "state": game_state['state'],
-        "is_player": participant_id in [game_state.get('player1_id'), game_state.get('player2_id')]
+        "is_player": participant_id in [game_state.get('player1_id'), game_state.get('player2_id')],
+        "recording_active": recording_active,
+        "recording_id": game_state.get("recording_id") if recording_active else None,
+        "recording_server_ts": game_state.get("recording_server_ts") if recording_active else None,
+        "round_number": game_state.get("round_number", 1),
     })
 
 
@@ -1487,6 +1492,8 @@ def _stop_active_recording(game_id, game_state, reason="moderator_stop"):
     recording_id = game_state.get("recording_id")
     server_ts = _utc_iso_timestamp()
     game_state["recording_active"] = False
+    game_state["recording_id"] = None
+    game_state["recording_server_ts"] = None
     set_game_state(game_id, game_state)
 
     payload = {
@@ -1497,6 +1504,35 @@ def _stop_active_recording(game_id, game_state, reason="moderator_stop"):
     socketio.emit("recording_stop", payload, to=f"game:{game_id}")
     record_event("system", "recording_stop", game_id, text=reason)
     print(f"⏹️ Recording stopped for game {game_id} ({recording_id})")
+    return payload
+
+
+def _start_active_recording(game_id, game_state, reason="moderator_start"):
+    """Start a recording session and broadcast recording_start. Returns payload or None."""
+    if game_state.get("recording_active"):
+        return None
+
+    recording_id = uuid.uuid4().hex
+    server_ts = _utc_iso_timestamp()
+    game_state["recording_active"] = True
+    game_state["recording_id"] = recording_id
+    game_state["recording_server_ts"] = server_ts
+    set_game_state(game_id, game_state)
+
+    payload = {
+        "game_id": game_id,
+        "recording_id": recording_id,
+        "server_ts": server_ts,
+        "reason": reason,
+    }
+    socketio.emit("recording_start", payload, to=f"game:{game_id}")
+    record_event(
+        "system",
+        "recording_start",
+        game_id,
+        text=f"recording_id={recording_id}; reason={reason}",
+    )
+    print(f"⏺️ Recording started for game {game_id} ({recording_id}) reason={reason}")
     return payload
 
 
@@ -1759,6 +1795,15 @@ def moderator_swap_roles():
     if not old_player1_id or not old_player2_id:
         return jsonify({"status": "error", "message": "Missing player IDs"}), 400
 
+    # Close round-1 stems before pages navigate; open a new take for round 2 so
+    # the moderator only uses Start (game start) and Stop (game end).
+    was_recording = bool(game_state.get("recording_active"))
+    if was_recording:
+        _stop_active_recording(
+            moderator_game_id, game_state, reason="role_swap_end_segment"
+        )
+        game_state = get_game_state(moderator_game_id) or game_state
+
     # Read round 1 secret card before switching current round in game state
     previous_chosen_card = get_chosen_card(moderator_game_id)
 
@@ -1799,9 +1844,18 @@ def moderator_swap_roles():
             "round_number": 2,
             "player1_id": game_state['player1_id'],
             "player2_id": game_state['player2_id'],
+            "recording_will_resume": was_recording,
         },
         to=f"game:{moderator_game_id}",
     )
+
+    # New recording_id for round 2. Navigating clients resume via /game/status.
+    recording_payload = None
+    if was_recording:
+        game_state = get_game_state(moderator_game_id) or game_state
+        recording_payload = _start_active_recording(
+            moderator_game_id, game_state, reason="role_swap_start_segment"
+        )
 
     return jsonify({
         "status": "ok",
@@ -1809,6 +1863,8 @@ def moderator_swap_roles():
         "round_number": 2,
         "player1_url": f"/player1?game_id={moderator_game_id}&participant_id={game_state['player1_id']}",
         "player2_url": f"/player2?game_id={moderator_game_id}&participant_id={game_state['player2_id']}",
+        "recording_resumed": bool(recording_payload),
+        "recording_id": recording_payload.get("recording_id") if recording_payload else None,
     })
 
 
@@ -1863,31 +1919,17 @@ def moderator_recording_start():
     if game_state.get("recording_active"):
         return jsonify({"status": "error", "message": "Recording already active"}), 400
 
-    recording_id = uuid.uuid4().hex
-    server_ts = _utc_iso_timestamp()
-    game_state["recording_active"] = True
-    game_state["recording_id"] = recording_id
-    set_game_state(moderator_game_id, game_state)
-
-    payload = {
-        "game_id": moderator_game_id,
-        "recording_id": recording_id,
-        "server_ts": server_ts,
-    }
-    socketio.emit("recording_start", payload, to=f"game:{moderator_game_id}")
-    record_event(
-        "system",
-        "recording_start",
-        moderator_game_id,
-        text=f"recording_id={recording_id}",
+    payload = _start_active_recording(
+        moderator_game_id, game_state, reason="moderator_start"
     )
-    print(f"⏺️ Recording started for game {moderator_game_id} ({recording_id})")
+    if not payload:
+        return jsonify({"status": "error", "message": "Recording already active"}), 400
 
     return jsonify({
         "status": "ok",
         "game_id": moderator_game_id,
-        "recording_id": recording_id,
-        "server_ts": server_ts,
+        "recording_id": payload["recording_id"],
+        "server_ts": payload["server_ts"],
     })
 
 

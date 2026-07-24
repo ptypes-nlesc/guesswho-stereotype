@@ -916,7 +916,26 @@
       startVoice().catch((err) => console.error("Auto voice join failed:", err));
     }
 
-    return { startVoice, stopVoice, setMuted, toggleMute: () => setMuted(!isMuted) };
+    function getLocalStream() {
+      return localStream;
+    }
+
+    /** Ensure mic stream exists (for recording if voice not fully joined yet). */
+    async function ensureLocalStream() {
+      if (localStream) return localStream;
+      await startVoice();
+      return localStream;
+    }
+
+    return {
+      startVoice,
+      stopVoice,
+      setMuted,
+      toggleMute: () => setMuted(!isMuted),
+      getLocalStream,
+      ensureLocalStream,
+      isVoiceActive: () => voiceActive,
+    };
   }
 
   window.setupVoice = setupVoice;
