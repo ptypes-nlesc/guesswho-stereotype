@@ -301,6 +301,52 @@
       });
     }
 
+    /**
+     * After role swap / reload, pages miss live socket events. If the server
+     * still has recording_active, start MediaRecorder for the current take.
+     */
+    async function resumeIfActive(maxAttempts) {
+      const attempts = maxAttempts || 8;
+      for (let i = 0; i < attempts; i++) {
+        if (isRecording()) {
+          return { ok: true, reason: "already_recording" };
+        }
+        try {
+          const res = await fetch(
+            `/game/status?game_id=${encodeURIComponent(gameId)}`,
+            { credentials: "same-origin", cache: "no-store" }
+          );
+          if (!res.ok) {
+            throw new Error(`status HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          if (data.recording_active && data.recording_id) {
+            console.log("[Recording] resuming active take after load", {
+              recording_id: data.recording_id,
+              round_number: data.round_number,
+              attempt: i + 1,
+            });
+            const result = await startFromEvent({
+              game_id: gameId,
+              recording_id: data.recording_id,
+              server_ts:
+                data.recording_server_ts || new Date().toISOString(),
+              reason: "resume_after_load",
+            });
+            if (result && result.ok) return result;
+          } else if (i === 0) {
+            // Not active yet — may still be starting after role swap; retry.
+          } else if (!data.recording_active) {
+            return { ok: false, reason: "not_active" };
+          }
+        } catch (err) {
+          console.warn("[Recording] resumeIfActive poll failed", err);
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      return { ok: false, reason: "give_up" };
+    }
+
     if (socket) {
       socket.on("recording_start", (data) => {
         startFromEvent(data).catch((err) =>
@@ -318,6 +364,13 @@
           stopFromEvent(data || { game_id: gameId }).catch(() => {});
         }
       });
+      // Prefer a clean stop before navigation on role swap (server also emits stop).
+      socket.on("roles_swapped", (data) => {
+        if (data && data.game_id && data.game_id !== gameId) return;
+        if (isRecording()) {
+          stopFromEvent(data).catch(() => {});
+        }
+      });
     }
 
     window.addEventListener("beforeunload", () => {
@@ -329,9 +382,15 @@
       }
     });
 
+    // Late join / post–role-swap pages reattach to an active take.
+    resumeIfActive().catch((err) =>
+      console.warn("[Recording] resumeIfActive failed", err)
+    );
+
     return {
       startFromEvent,
       stopFromEvent,
+      resumeIfActive,
       isRecording,
       getLastResult,
       downloadLast,
