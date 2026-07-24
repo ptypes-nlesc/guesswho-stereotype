@@ -32,9 +32,31 @@
         .state-ENDED { background: #f3e5f5; color: #6a1b9a; }
         .control-buttons {
             display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
+            flex-direction: column;
+            gap: 18px;
             margin: 20px 0;
+        }
+        .control-step {
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 14px 16px;
+        }
+        .control-step h3 {
+            margin: 0 0 6px;
+            font-size: 0.95em;
+            color: #333;
+        }
+        .control-step .step-note {
+            margin: 0 0 12px;
+            font-size: 0.85em;
+            color: #666;
+            line-height: 1.4;
+        }
+        .control-step-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
         }
         .control-btn {
             flex: 1;
@@ -109,18 +131,6 @@
             color: #c62828;
             font-size: 0.85em;
             font-weight: bold;
-        }
-        .recording-controls {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            flex: 1;
-            min-width: 150px;
-        }
-        .recording-controls .control-btn {
-            flex: 1;
-            width: 100%;
-            min-height: 52px;
         }
         .info-section {
             background: white;
@@ -236,18 +246,39 @@
 
         {% if staff_role != 'auditor' %}
         <div class="control-buttons">
-            <button id="btn-open" class="control-btn btn-open">🔓 Open Entry</button>
-            <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
-            <button id="btn-swap" class="control-btn btn-start">🔁 Swap Roles</button>
-            <button id="btn-end" class="control-btn btn-end">⏹️ End Game</button>
-            <div class="recording-controls">
-                <button id="btn-record-start" class="control-btn btn-record-start">⏺️ Start Recording</button>
-                <button id="btn-record-stop" class="control-btn btn-record-stop">⏹️ Stop Recording</button>
+            <div class="control-step">
+                <h3>1 · Before the game</h3>
+                <p class="step-note">Open entry after tokens; check mic below; wait until 2 participants are ready.</p>
+                <div class="control-step-actions">
+                    <button id="btn-open" class="control-btn btn-open">🔓 Open Entry</button>
+                    <button id="btn-start" class="control-btn btn-start">▶️ Start Game</button>
+                </div>
             </div>
-            <p style="margin: 6px 0 0; font-size: 0.85em; color: #666; max-width: 28em;">
-                Start after the game begins; stop when the game ends.
-                Role swap auto-ends round&nbsp;1 takes and starts round&nbsp;2 — no extra click.
-            </p>
+
+            <div class="control-step">
+                <h3>2 · After the game has started</h3>
+                <p class="step-note">Start recording once everyone is in voice. Leave it running through both rounds.</p>
+                <div class="control-step-actions">
+                    <button id="btn-record-start" class="control-btn btn-record-start">⏺️ Start Recording</button>
+                </div>
+            </div>
+
+            <div class="control-step">
+                <h3>3 · During the game</h3>
+                <p class="step-note">Swap roles for round 2 — recording stops round&nbsp;1 stems and starts round&nbsp;2 automatically (no extra recording click).</p>
+                <div class="control-step-actions">
+                    <button id="btn-swap" class="control-btn btn-start">🔁 Swap Roles</button>
+                </div>
+            </div>
+
+            <div class="control-step">
+                <h3>4 · When finished</h3>
+                <p class="step-note">Stop recording first, then end the game session.</p>
+                <div class="control-step-actions">
+                    <button id="btn-record-stop" class="control-btn btn-record-stop">⏹️ Stop Recording</button>
+                    <button id="btn-end" class="control-btn btn-end">⏹️ End Game</button>
+                </div>
+            </div>
         </div>
 
         <div class="info-section">
@@ -261,13 +292,15 @@
         </div>
 
         <div class="info-section">
-            <h3>📋 Instructions</h3>
+            <h3>📋 Session workflow</h3>
             <ol>
-                <li><strong>Generate Tokens:</strong> Create invitation links for participants</li>
-                <li><strong>Open Entry:</strong> Allow participants to join via their unique links</li>
-                <li><strong>Wait:</strong> Exactly 2 participants must join (entry auto-closes)</li>
-                <li><strong>Start Game:</strong> Roles are assigned automatically and participants are redirected</li>
-                <li><strong>End Game:</strong> When game concludes, end the session</li>
+                <li><strong>Generate tokens</strong> and share join links</li>
+                <li><strong>Check microphone</strong>, then <strong>Open Entry</strong></li>
+                <li>Wait until <strong>2 participants</strong> have joined</li>
+                <li><strong>Start Game</strong> — open moderator view; wait for voice</li>
+                <li><strong>Start Recording</strong> — once only, after the game is running</li>
+                <li>Play round 1 → <strong>Swap Roles</strong> (recording continues into round 2 automatically)</li>
+                <li><strong>Stop Recording</strong>, then <strong>End Game</strong></li>
             </ol>
         </div>
 
