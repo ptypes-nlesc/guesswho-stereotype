@@ -1,7 +1,6 @@
 // Session audio capture: each browser records its local microphone only.
-// Starts/stops on Socket.IO recording_start / recording_stop (no upload yet).
-//
-// Holds the last blob + sync timestamps for a later feature/audio-upload branch.
+// Starts/stops on Socket.IO recording_start / recording_stop, then uploads
+// the stem to POST /audio/upload (option 1: soft gate + notifications).
 
 (function () {
   function pickMimeType() {
@@ -43,6 +42,10 @@
     });
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   /**
    * @param {object} opts
    * @param {object} opts.socket - Socket.IO client
@@ -52,7 +55,9 @@
    * @param {function(): MediaStream|null} [opts.getLocalStream]
    * @param {function(): Promise<MediaStream|null>} [opts.ensureLocalStream]
    * @param {HTMLElement|null} [opts.statusEl] - recording indicator
-   * @param {function(object): void} [opts.onComplete] - after stop with payload
+   * @param {function(object): void} [opts.onComplete] - after stop (before/after upload)
+   * @param {boolean} [opts.autoUpload=true]
+   * @param {number} [opts.uploadRetries=3]
    */
   function createSessionRecorder(opts) {
     const socket = opts.socket;
@@ -65,6 +70,8 @@
       (async () => (typeof getLocalStream === "function" ? getLocalStream() : null));
     const statusEl = opts.statusEl || null;
     const onComplete = opts.onComplete || null;
+    const autoUpload = opts.autoUpload !== false;
+    const uploadRetries = typeof opts.uploadRetries === "number" ? opts.uploadRetries : 3;
 
     let mediaRecorder = null;
     let recStream = null;
@@ -72,16 +79,34 @@
     let active = false;
     let session = null; // metadata for current/last take
     let lastResult = null;
+    let pendingWork = Promise.resolve();
+    let uploadInFlight = null;
 
-    function setIndicator(text, isRecording) {
+    function setIndicator(text, mode) {
       if (!statusEl) return;
       statusEl.textContent = text;
-      statusEl.style.color = isRecording ? "#b71c1c" : "#555";
-      statusEl.style.fontWeight = isRecording ? "600" : "normal";
+      // mode: recording | uploading | ok | error | muted
+      let color = "#555";
+      let weight = "normal";
+      if (mode === "recording") {
+        color = "#b71c1c";
+        weight = "600";
+      } else if (mode === "uploading") {
+        color = "#e65100";
+        weight = "600";
+      } else if (mode === "ok") {
+        color = "#2e7d32";
+        weight = "600";
+      } else if (mode === "error") {
+        color = "#c62828";
+        weight = "600";
+      }
+      statusEl.style.color = color;
+      statusEl.style.fontWeight = weight;
     }
 
     function resetIndicator() {
-      setIndicator("", false);
+      setIndicator("", "muted");
     }
 
     function isRecording() {
@@ -90,6 +115,36 @@
 
     function getLastResult() {
       return lastResult;
+    }
+
+    function isBusy() {
+      return isRecording() || !!uploadInFlight;
+    }
+
+    /**
+     * Wait until any in-flight stop + upload chain finishes.
+     * Used before role-swap navigation / end teardown (own stem only).
+     */
+    async function waitForIdle(timeoutMs) {
+      const limit = typeof timeoutMs === "number" ? timeoutMs : 60000;
+      const start = Date.now();
+      try {
+        await pendingWork;
+      } catch (_) {
+        /* individual steps log their own errors */
+      }
+      while (isBusy() && Date.now() - start < limit) {
+        try {
+          await pendingWork;
+        } catch (_) {}
+        if (uploadInFlight) {
+          try {
+            await uploadInFlight;
+          } catch (_) {}
+        }
+        await sleep(50);
+      }
+      return { ok: !isBusy(), recording: isRecording(), uploading: !!uploadInFlight };
     }
 
     /** Debug helper: download last take as a file in the browser. */
@@ -117,6 +172,135 @@
       return true;
     }
 
+    async function uploadResult(result, attemptBase) {
+      if (!result || !result.blob) {
+        return { ok: false, reason: "no_blob" };
+      }
+      if (
+        result.client_recorder_start_ts == null ||
+        result.client_recorder_stop_ts == null ||
+        result.client_received_ts == null
+      ) {
+        setIndicator("upload blocked (missing timestamps)", "error");
+        return { ok: false, reason: "missing_timestamps" };
+      }
+
+      const attempts = uploadRetries;
+      let lastErr = null;
+
+      for (let i = 0; i < attempts; i++) {
+        if (i > 0) {
+          await sleep(400 * Math.pow(2, i - 1));
+        }
+        setIndicator(
+          i === 0 ? "↑ uploading…" : `↑ upload retry ${i + 1}/${attempts}…`,
+          "uploading"
+        );
+        try {
+          const form = new FormData();
+          const ext = (result.mimeType || "").includes("ogg")
+            ? "ogg"
+            : (result.mimeType || "").includes("mp4")
+              ? "m4a"
+              : "webm";
+          const filename = [
+            result.recording_id || "rec",
+            role,
+            participantId || "moderator",
+          ].join("_") + "." + ext;
+
+          form.append(
+            "file",
+            result.blob,
+            filename
+          );
+          form.append("game_id", result.game_id || gameId);
+          form.append("recording_id", result.recording_id || "");
+          form.append("role", role);
+          if (participantId) {
+            form.append("participant_id", participantId);
+          }
+          form.append("client_received_ts", String(result.client_received_ts));
+          form.append(
+            "client_recorder_start_ts",
+            String(result.client_recorder_start_ts)
+          );
+          form.append(
+            "client_recorder_stop_ts",
+            String(result.client_recorder_stop_ts)
+          );
+          if (result.server_ts) {
+            form.append("server_ts", result.server_ts);
+          }
+          if (result.server_stop_ts) {
+            form.append("server_stop_ts", result.server_stop_ts);
+          }
+          if (result.mimeType) {
+            form.append("mime_type", result.mimeType);
+          }
+
+          const res = await fetch("/audio/upload", {
+            method: "POST",
+            body: form,
+            credentials: "same-origin",
+            // Help survive navigation shortly after swap (best-effort).
+            keepalive: true,
+          });
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {
+            data = null;
+          }
+          if (!res.ok || !data || data.status !== "ok") {
+            const msg =
+              (data && data.message) || `HTTP ${res.status}`;
+            throw new Error(msg);
+          }
+
+          lastResult = {
+            ...result,
+            uploaded: true,
+            audio_path: data.audio_path,
+            audio_event_id: data.audio_event_id,
+            upload_byte_size: data.byte_size,
+          };
+          window.__lastRecording = lastResult;
+          setIndicator("✓ uploaded", "ok");
+          console.log("[Recording] uploaded", {
+            recording_id: result.recording_id,
+            audio_path: data.audio_path,
+            byte_size: data.byte_size,
+            attempt: (attemptBase || 0) + i + 1,
+          });
+          return { ok: true, data, result: lastResult };
+        } catch (err) {
+          lastErr = err;
+          console.warn("[Recording] upload attempt failed", err);
+        }
+      }
+
+      setIndicator("⚠ upload failed — use downloadLast()", "error");
+      console.error("[Recording] upload failed after retries", lastErr);
+      if (lastResult) {
+        lastResult.uploaded = false;
+        lastResult.upload_error = String(lastErr && lastErr.message || lastErr);
+      }
+      return { ok: false, reason: "upload_failed", error: lastErr };
+    }
+
+    async function runUpload(result) {
+      if (!autoUpload) {
+        return { ok: false, reason: "auto_upload_disabled" };
+      }
+      uploadInFlight = uploadResult(result);
+      try {
+        return await uploadInFlight;
+      } finally {
+        uploadInFlight = null;
+      }
+    }
+
     async function startFromEvent(data) {
       const clientReceivedTs = Date.now();
 
@@ -132,7 +316,7 @@
 
       if (typeof MediaRecorder === "undefined") {
         console.error("[Recording] MediaRecorder not supported in this browser");
-        setIndicator("recording unsupported", false);
+        setIndicator("recording unsupported", "error");
         return { ok: false, reason: "unsupported" };
       }
 
@@ -142,19 +326,19 @@
           local = await ensureLocalStream();
         } catch (err) {
           console.error("[Recording] could not get microphone stream", err);
-          setIndicator("mic required for recording", false);
+          setIndicator("mic required for recording", "error");
           return { ok: false, reason: "no_mic" };
         }
       }
       if (!local || !local.getAudioTracks().length) {
         console.error("[Recording] no local audio tracks");
-        setIndicator("mic required for recording", false);
+        setIndicator("mic required for recording", "error");
         return { ok: false, reason: "no_mic" };
       }
 
       recStream = cloneAudioStream(local);
       if (!recStream) {
-        setIndicator("mic required for recording", false);
+        setIndicator("mic required for recording", "error");
         return { ok: false, reason: "no_mic" };
       }
 
@@ -168,7 +352,7 @@
         console.error("[Recording] MediaRecorder construct failed", err);
         stopStreamTracks(recStream);
         recStream = null;
-        setIndicator("recorder error", false);
+        setIndicator("recorder error", "error");
         return { ok: false, reason: "construct_failed" };
       }
 
@@ -197,7 +381,7 @@
         mediaRecorder.start(1000);
         session.client_recorder_start_ts = Date.now();
         active = true;
-        setIndicator("⏺ recording…", true);
+        setIndicator("⏺ recording…", "recording");
         console.log("[Recording] started", {
           recording_id: session.recording_id,
           mimeType: session.mimeType,
@@ -213,13 +397,13 @@
         mediaRecorder = null;
         session = null;
         active = false;
-        setIndicator("recorder error", false);
+        setIndicator("recorder error", "error");
         return { ok: false, reason: "start_failed" };
       }
     }
 
     function stopFromEvent(data) {
-      return new Promise((resolve) => {
+      const stopPromise = new Promise((resolve) => {
         if (data && data.game_id && data.game_id !== gameId) {
           resolve({ ok: false, reason: "wrong_game" });
           return;
@@ -256,10 +440,11 @@
             blob,
             size: blob.size,
             mimeType: mime,
+            uploaded: false,
           };
           session = null;
 
-          setIndicator("recording saved (local)", false);
+          setIndicator("recording saved (local)", "muted");
           console.log("[Recording] stopped", {
             recording_id: lastResult.recording_id,
             size: lastResult.size,
@@ -277,7 +462,6 @@
             }
           }
 
-          // Expose for manual debug / next upload branch
           window.__lastRecording = lastResult;
           resolve({ ok: true, result: lastResult });
         };
@@ -295,10 +479,23 @@
           mediaRecorder = null;
           active = false;
           session = null;
-          setIndicator("recorder error", false);
+          setIndicator("recorder error", "error");
           resolve({ ok: false, reason: "stop_failed" });
         }
       });
+
+      const chain = stopPromise.then(async (stopRes) => {
+        if (stopRes && stopRes.ok && stopRes.result && autoUpload) {
+          const uploadRes = await runUpload(stopRes.result);
+          return { ...stopRes, upload: uploadRes };
+        }
+        return stopRes;
+      });
+      pendingWork = pendingWork.then(
+        () => chain,
+        () => chain
+      );
+      return chain;
     }
 
     /**
@@ -342,7 +539,7 @@
         } catch (err) {
           console.warn("[Recording] resumeIfActive poll failed", err);
         }
-        await new Promise((r) => setTimeout(r, 400));
+        await sleep(400);
       }
       return { ok: false, reason: "give_up" };
     }
@@ -391,7 +588,10 @@
       startFromEvent,
       stopFromEvent,
       resumeIfActive,
+      uploadResult,
+      waitForIdle,
       isRecording,
+      isBusy,
       getLastResult,
       downloadLast,
       resetIndicator,

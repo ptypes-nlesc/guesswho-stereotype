@@ -154,6 +154,13 @@
 
                     if (!gameEnded) {
                         gameEnded = true;
+                        if (window.sessionRecorder && typeof window.sessionRecorder.waitForIdle === 'function') {
+                            try {
+                                await window.sessionRecorder.waitForIdle(60000);
+                            } catch (err) {
+                                console.warn('waitForIdle on game end failed', err);
+                            }
+                        }
                         if (voice) voice.stopVoice();
                         // Disable interactions
                         document.getElementById('chat-input').disabled = true;
@@ -260,12 +267,6 @@
             setTimeout(checkEndOfGame, 100);
         });
 
-        socket.on('roles_swapped', data => {
-            if (!data || data.game_id !== gameId) return;
-            appendMessage('<em>Rollen gewisseld. Je wordt doorgestuurd naar ronde 2</em>', 'color:gray;');
-            setTimeout(redirectToCurrentRole, 300);
-        });
-
         // --- Elimination logic -----------------------------------------
         function eliminateCard(cardId) {
             const cardEl = document.getElementById(`card${cardId}`);
@@ -324,6 +325,19 @@
             statusEl: document.getElementById('recording-status'),
         });
         window.sessionRecorder = sessionRecorder;
+
+        socket.on('roles_swapped', async data => {
+            if (!data || data.game_id !== gameId) return;
+            appendMessage('<em>Rollen gewisseld. Audio uploaden, daarna doorsturen naar ronde 2…</em>', 'color:gray;');
+            if (sessionRecorder && typeof sessionRecorder.waitForIdle === 'function') {
+                try {
+                    await sessionRecorder.waitForIdle(60000);
+                } catch (err) {
+                    console.warn('waitForIdle before role redirect failed', err);
+                }
+            }
+            redirectToCurrentRole();
+        });
     </script>
 </body>
 
