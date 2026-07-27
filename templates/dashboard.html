@@ -306,6 +306,14 @@
             <div id="game-links"></div>
         </div>
 
+        <div class="info-section" id="audio-stems-section" style="display: none;">
+            <h3>🎤 Audio stems (last take)</h3>
+            <p class="step-note" style="margin-top: 0;">
+                Informational only — swap/end are not blocked. Each browser uploads its own mic after stop.
+            </p>
+            <div id="audio-stems-status" style="font-family: ui-monospace, monospace; font-size: 0.95em;"></div>
+        </div>
+
         <div class="footer">
             <p>You are logged in as <strong>{{ 'Auditor (read-only)' if staff_role == 'auditor' else 'Moderator' }}</strong>.</p>
             <form action="/logout" method="get" style="display: inline;">
@@ -332,6 +340,7 @@
                         <div class="state-badge state-CLOSED">NO SESSION</div>
                         <p>${noSessionMessage}</p>
                     `;
+                    renderAudioStems(null);
                     if (staffRole !== 'auditor') {
                         updateButtons({ state: 'NO_SESSION', round_number: 1, can_swap_roles: false });
                     }
@@ -397,6 +406,8 @@
                         document.getElementById('game-links-section').style.display = 'none';
                     }
 
+                    renderAudioStems(data.last_audio_uploads);
+
                     if (staffRole !== 'auditor') {
                         updateButtons(data);
                     }
@@ -404,6 +415,37 @@
             } catch (err) {
                 console.error('Status update failed:', err);
             }
+        }
+
+        function renderAudioStems(uploads) {
+            const section = document.getElementById('audio-stems-section');
+            const el = document.getElementById('audio-stems-status');
+            if (!section || !el) return;
+
+            if (!uploads || !uploads.recording_id) {
+                section.style.display = 'none';
+                el.innerHTML = '';
+                return;
+            }
+
+            section.style.display = 'block';
+            const stems = uploads.stems || {};
+            const roles = ['player1', 'player2', 'moderator'];
+            const parts = roles.map((role) => {
+                const stem = stems[role];
+                if (stem && stem.status === 'ok') {
+                    const kb = stem.byte_size != null
+                        ? ` (${Math.round(stem.byte_size / 1024)} KB)`
+                        : '';
+                    return `<span style="color:#2e7d32;margin-right:12px;">${role} ✓${kb}</span>`;
+                }
+                return `<span style="color:#e65100;margin-right:12px;">${role} …</span>`;
+            });
+            const done = roles.filter((r) => stems[r] && stems[r].status === 'ok').length;
+            el.innerHTML = `
+                <p style="margin:0 0 8px;"><strong>recording_id:</strong> ${uploads.recording_id.substring(0, 12)}…</p>
+                <p style="margin:0;">${parts.join('')} <strong>${done}/3</strong></p>
+            `;
         }
 
         function updateButtons(statusData) {
