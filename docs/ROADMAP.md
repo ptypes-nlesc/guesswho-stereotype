@@ -12,7 +12,7 @@ Development milestones for the *Xposed* web application (Guess Who–style resea
 |-------|--------|
 | 1 – Core MVP | Done |
 | 2 – First game playable | Done |
-| 3 – Live voice + recording | **In progress** — voice done; **next: client MediaRecorder** |
+| 3 – Live voice + recording | **In progress** — voice + local capture done; **next: audio upload** |
 | 4 – Deployment & security | Mostly done (hardening ongoing) |
 | 5 – Research features | Future |
 
@@ -64,16 +64,18 @@ Development milestones for the *Xposed* web application (Guess Who–style resea
 
 Each browser records **its own microphone only** (not remote WebRTC audio).
 
-### Audio capture & storage — in progress
+### Audio capture — done
 
-**Capture:**
+Shipped in `feature/media-recorder` (`static/recorder.js` on player1, player2, moderator). Blobs stay in the browser until upload is implemented.
 
-- [ ] MediaRecorder on player1 / player2 / moderator (local mic)  
-- [ ] Auto-start / stop on `recording_start` / `recording_stop`  
-- [ ] Capture `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`  
-- [ ] Recording indicator UI; handle voice not joined / refresh mid-session  
+- [x] MediaRecorder on player1 / player2 / moderator (local mic)  
+- [x] Auto-start / stop on `recording_start` / `recording_stop`  
+- [x] Capture `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`  
+- [x] Recording indicator UI; resume after role swap / refresh mid-session  
+- [x] Track cloning so voice mute does not silence research stems  
+- [x] Auto-segment on role swap; resume active take via `/game/status`  
 
-**Upload & storage:**
+### Upload & storage — in progress (next)
 
 - [ ] `POST /audio/upload` (multipart: file + metadata)  
 - [ ] Path pattern: `{game_id}/{recording_id}_{role}_{participant_id}.webm`  
@@ -111,7 +113,7 @@ Each browser records **its own microphone only** (not remote WebRTC audio).
 
 ## Suggested order of work
 
-1. **`feature/media-recorder`** — record local mic on all roles when moderator starts recording  
+1. ~~**`feature/media-recorder`** — record local mic on all roles when moderator starts recording~~ **done**  
 2. **`feature/audio-upload`** — upload webm + timestamps; persist `audio_events`  
 3. **`chore/audio-storage-staging`** — VM directory, env, full pipeline smoke test  
 4. Hardening / reconnection and research tooling as needed  

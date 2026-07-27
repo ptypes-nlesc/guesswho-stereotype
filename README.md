@@ -24,11 +24,12 @@ Research web app for studying how people express stereotypes in a two-player ded
 | **Access** | One-time join tokens; staff login (`MODERATOR_PASSWORD`, `AUDITOR_PASSWORD`) |
 | **Realtime** | Socket.IO chat, game events, voice signaling |
 | **Voice** | 3-way WebRTC mesh; mic check; auto-join; mute; coturn TURN via `GET /api/webrtc/ice-servers` |
-| **Recording control** | Moderator start/stop; `recording_start` / `recording_stop` to all roles (client capture/upload still planned) |
+| **Recording control** | Moderator start/stop; `recording_start` / `recording_stop` to all roles |
+| **Local capture** | Each browser records its own mic (`static/recorder.js`); stems stay client-side until upload |
 | **Data** | MySQL/MariaDB persistence; Redis for live game/voice state |
 | **Deploy** | Gunicorn + gevent WebSocket worker; reverse-proxy friendly (ProxyFix) |
 
-Roadmap and next steps (e.g. MediaRecorder + audio upload): [docs/ROADMAP.md](docs/ROADMAP.md).  
+Roadmap and next steps (audio upload + storage next): [docs/ROADMAP.md](docs/ROADMAP.md).  
 User guide, API, and more: [docs/](docs/) (MkDocs).
 
 ## Tech stack

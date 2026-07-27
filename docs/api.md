@@ -92,11 +92,14 @@ This page summarizes HTTP routes and Socket.IO events exposed by the application
   - Starts a recording session while game state is IN_PROGRESS.
   - Broadcasts recording_start to room game:{game_id}.
   - Response includes recording_id and server_ts (UTC ISO-8601).
+  - Clients (player1, player2, moderator) start local-mic MediaRecorder on this event.
+  - Audio is not uploaded yet (no POST /audio/upload); stems remain in the browser.
 
 - POST /moderator/control/recording/stop
   - Stops the active recording session.
   - Broadcasts recording_stop to room game:{game_id}.
   - Idempotent when no recording is active (returns ok).
+  - Clients stop MediaRecorder and keep the last blob + timestamps locally.
 
 - POST /moderator/tokens/generate
   - Body: {"count": 1..100}
@@ -156,8 +159,10 @@ This page summarizes HTTP routes and Socket.IO events exposed by the application
 - roles_swapped
 - recording_start
   - Payload: {"game_id", "recording_id", "server_ts"}
+  - Clients record local microphone only (not remote WebRTC audio).
 - recording_stop
   - Payload: {"game_id", "recording_id", "server_ts"}
+  - Clients finalize the local stem; server persistence is planned (see ROADMAP).
 - game_ended
   - Payload: {"game_id", "state"}
   - Clients should leave voice when received.
