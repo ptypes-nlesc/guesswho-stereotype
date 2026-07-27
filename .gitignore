@@ -4,6 +4,7 @@ venv/
 .env
 .pytest_cache/
 data/game_log.json
+data/audio/
 nohup.out
 db/games.db
 site/
