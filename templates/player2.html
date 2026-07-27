@@ -329,6 +329,9 @@
         socket.on('roles_swapped', async data => {
             if (!data || data.game_id !== gameId) return;
             appendMessage('<em>Rollen gewisseld. Audio uploaden, daarna doorsturen naar ronde 2…</em>', 'color:gray;');
+            if (sessionRecorder && typeof sessionRecorder.prepareForNavigation === 'function') {
+                sessionRecorder.prepareForNavigation();
+            }
             if (sessionRecorder && typeof sessionRecorder.waitForIdle === 'function') {
                 try {
                     await sessionRecorder.waitForIdle(60000);

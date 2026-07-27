@@ -81,6 +81,9 @@
     let lastResult = null;
     let pendingWork = Promise.resolve();
     let uploadInFlight = null;
+    // After role swap this page is about to navigate; ignore round-2 recording_start
+    // so we do not block on a new take or keep chatting under the old role.
+    let suppressNewTakes = false;
 
     function setIndicator(text, mode) {
       if (!statusEl) return;
@@ -122,8 +125,24 @@
     }
 
     /**
-     * Wait until any in-flight stop + upload chain finishes.
-     * Used before role-swap navigation / end teardown (own stem only).
+     * Call before leaving the page (role swap). Stops accepting new takes and
+     * finalizes the current stem if still recording.
+     */
+    function prepareForNavigation() {
+      suppressNewTakes = true;
+      console.log("[Recording] prepareForNavigation — ignoring further starts");
+      if (isRecording()) {
+        stopFromEvent({ game_id: gameId, reason: "prepare_for_navigation" }).catch(
+          (err) => console.warn("[Recording] stop on navigate failed", err)
+        );
+      }
+    }
+
+    /**
+     * Wait until in-flight stop + upload work finishes.
+     * Does NOT wait for "not recording" — after role swap the server may start
+     * round 2 while this old page is still open; waiting for that would block
+     * navigation (and chat would keep using the old role).
      */
     async function waitForIdle(timeoutMs) {
       const limit = typeof timeoutMs === "number" ? timeoutMs : 60000;
@@ -133,18 +152,29 @@
       } catch (_) {
         /* individual steps log their own errors */
       }
-      while (isBusy() && Date.now() - start < limit) {
+      while (uploadInFlight && Date.now() - start < limit) {
+        try {
+          await uploadInFlight;
+        } catch (_) {}
         try {
           await pendingWork;
         } catch (_) {}
-        if (uploadInFlight) {
-          try {
-            await uploadInFlight;
-          } catch (_) {}
-        }
         await sleep(50);
       }
-      return { ok: !isBusy(), recording: isRecording(), uploading: !!uploadInFlight };
+      // One more drain in case stop just queued upload after pendingWork resolved.
+      try {
+        await pendingWork;
+      } catch (_) {}
+      if (uploadInFlight) {
+        try {
+          await uploadInFlight;
+        } catch (_) {}
+      }
+      return {
+        ok: !uploadInFlight,
+        recording: isRecording(),
+        uploading: !!uploadInFlight,
+      };
     }
 
     /** Debug helper: download last take as a file in the browser. */
@@ -314,6 +344,13 @@
       if (!data || data.game_id !== gameId) {
         console.log("[Recording] ignore start for other game", data && data.game_id);
         return { ok: false, reason: "wrong_game" };
+      }
+
+      if (suppressNewTakes) {
+        console.log(
+          "[Recording] ignore start — page is navigating away (role swap)"
+        );
+        return { ok: false, reason: "navigating_away" };
       }
 
       if (isRecording()) {
@@ -510,8 +547,14 @@
      * still has recording_active, start MediaRecorder for the current take.
      */
     async function resumeIfActive(maxAttempts) {
+      if (suppressNewTakes) {
+        return { ok: false, reason: "navigating_away" };
+      }
       const attempts = maxAttempts || 8;
       for (let i = 0; i < attempts; i++) {
+        if (suppressNewTakes) {
+          return { ok: false, reason: "navigating_away" };
+        }
         if (isRecording()) {
           return { ok: true, reason: "already_recording" };
         }
@@ -568,12 +611,10 @@
           stopFromEvent(data || { game_id: gameId }).catch(() => {});
         }
       });
-      // Prefer a clean stop before navigation on role swap (server also emits stop).
+      // Role swap: stop current take if needed and ignore round-2 start on this page.
       socket.on("roles_swapped", (data) => {
         if (data && data.game_id && data.game_id !== gameId) return;
-        if (isRecording()) {
-          stopFromEvent(data).catch(() => {});
-        }
+        prepareForNavigation();
       });
     }
 
@@ -597,6 +638,7 @@
       resumeIfActive,
       uploadResult,
       waitForIdle,
+      prepareForNavigation,
       isRecording,
       isBusy,
       getLastResult,

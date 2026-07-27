@@ -307,6 +307,9 @@
                 `<em style="color: #0066cc;">⚠️ Roles swapped — uploading audio, then refreshing…</em>`,
                 "color: #0066cc; font-weight: bold;"
             );
+            if (sessionRecorder && typeof sessionRecorder.prepareForNavigation === "function") {
+                sessionRecorder.prepareForNavigation();
+            }
             if (sessionRecorder && typeof sessionRecorder.waitForIdle === "function") {
                 try {
                     await sessionRecorder.waitForIdle(60000);
