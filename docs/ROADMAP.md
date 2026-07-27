@@ -12,7 +12,7 @@ Development milestones for the *Xposed* web application (Guess Who–style resea
 |-------|--------|
 | 1 – Core MVP | Done |
 | 2 – First game playable | Done |
-| 3 – Live voice + recording | **In progress** — voice + local capture done; **next: audio upload** |
+| 3 – Live voice + recording | **In progress** — capture + upload done; **next: staging storage smoke test** |
 | 4 – Deployment & security | Mostly done (hardening ongoing) |
 | 5 – Research features | Future |
 
@@ -75,13 +75,17 @@ Shipped in `feature/media-recorder` (`static/recorder.js` on player1, player2, m
 - [x] Track cloning so voice mute does not silence research stems  
 - [x] Auto-segment on role swap; resume active take via `/game/status`  
 
-### Upload & storage — in progress (next)
+### Upload & storage — in progress
 
-- [ ] `POST /audio/upload` (multipart: file + metadata)  
-- [ ] Path pattern: `{game_id}/{recording_id}_{role}_{participant_id}.webm`  
-- [ ] Env `AUDIO_STORAGE_DIR` (local `data/audio/`; staging e.g. `/data/xposed/shared/audio/`)  
-- [ ] Insert `audio_events` with path + start/end times  
-- [ ] Reject uploads missing required timestamps  
+- [x] `POST /audio/upload` (multipart: file + metadata)  
+- [x] Path pattern: `{game_id}/{recording_id}_{role}_{participant_id}.webm`  
+- [x] Env `AUDIO_STORAGE_DIR` (local `data/audio/`; staging e.g. `/data/xposed/shared/audio/`)  
+- [x] Insert `audio_events` with path + start/end + client timestamps  
+- [x] Reject uploads missing required timestamps  
+- [x] Idempotent overwrite per `(game_id, recording_id, role)`  
+- [x] Local success/fail UI; `audio_upload_complete` socket event  
+- [x] Dashboard informational stem checklist (`last_audio_uploads`)  
+- [x] Wait for **own** upload before role-swap navigation / end teardown (option 1 soft gate)  
 - [ ] Staging directory, deploy env, full-session smoke test  
 
 ---
@@ -114,7 +118,7 @@ Shipped in `feature/media-recorder` (`static/recorder.js` on player1, player2, m
 ## Suggested order of work
 
 1. ~~**`feature/media-recorder`** — record local mic on all roles when moderator starts recording~~ **done**  
-2. **`feature/audio-upload`** — upload webm + timestamps; persist `audio_events`  
+2. ~~**`feature/audio-upload`** — upload webm + timestamps; persist `audio_events`~~ **done** (option 1 soft gate)  
 3. **`chore/audio-storage-staging`** — VM directory, env, full pipeline smoke test  
 4. Hardening / reconnection and research tooling as needed  
 

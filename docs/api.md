@@ -93,13 +93,23 @@ This page summarizes HTTP routes and Socket.IO events exposed by the application
   - Broadcasts recording_start to room game:{game_id}.
   - Response includes recording_id and server_ts (UTC ISO-8601).
   - Clients (player1, player2, moderator) start local-mic MediaRecorder on this event.
-  - Audio is not uploaded yet (no POST /audio/upload); stems remain in the browser.
 
 - POST /moderator/control/recording/stop
   - Stops the active recording session.
   - Broadcasts recording_stop to room game:{game_id}.
   - Idempotent when no recording is active (returns ok).
-  - Clients stop MediaRecorder and keep the last blob + timestamps locally.
+  - Clients stop MediaRecorder and POST the stem to /audio/upload.
+
+- POST /audio/upload
+  - Multipart form: `file` plus metadata fields:
+    - required: `game_id`, `recording_id`, `role`,
+      `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`
+    - optional: `participant_id` (required for players), `server_ts`, `server_stop_ts`, `mime_type`
+  - Auth (soft): players must be assigned to the game; moderator requires staff session.
+  - Stores under `AUDIO_STORAGE_DIR/{game_id}/{recording_id}_{role}_{participant}.webm`
+  - Upserts `audio_events` (unique on game_id + recording_id + role).
+  - Broadcasts `audio_upload_complete` to room `game:{game_id}`.
+  - Updates game state `last_audio_uploads` for dashboard checklist.
 
 - POST /moderator/tokens/generate
   - Body: {"count": 1..100}
@@ -162,7 +172,10 @@ This page summarizes HTTP routes and Socket.IO events exposed by the application
   - Clients record local microphone only (not remote WebRTC audio).
 - recording_stop
   - Payload: {"game_id", "recording_id", "server_ts"}
-  - Clients finalize the local stem; server persistence is planned (see ROADMAP).
+  - Clients finalize the local stem and upload to POST /audio/upload.
+- audio_upload_complete
+  - Payload: {"game_id", "recording_id", "role", "participant_id", "audio_path", "byte_size", "audio_event_id"}
+  - Emitted after a successful stem save.
 - game_ended
   - Payload: {"game_id", "state"}
   - Clients should leave voice when received.
