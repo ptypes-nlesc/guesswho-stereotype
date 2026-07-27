@@ -239,12 +239,13 @@
             form.append("mime_type", result.mimeType);
           }
 
+          // Do NOT set keepalive: browsers cap keepalive bodies at ~64KB;
+          // research stems are often 0.5–several MB and would fail silently.
+          // Navigation is delayed via waitForIdle() instead.
           const res = await fetch("/audio/upload", {
             method: "POST",
             body: form,
             credentials: "same-origin",
-            // Help survive navigation shortly after swap (best-effort).
-            keepalive: true,
           });
           let data = null;
           try {
@@ -276,15 +277,21 @@
           return { ok: true, data, result: lastResult };
         } catch (err) {
           lastErr = err;
-          console.warn("[Recording] upload attempt failed", err);
+          console.warn("[Recording] upload attempt failed", {
+            attempt: i + 1,
+            size: result.size || (result.blob && result.blob.size),
+            recording_id: result.recording_id,
+            error: err && err.message ? err.message : err,
+          });
         }
       }
 
+      const errText = lastErr && lastErr.message ? lastErr.message : "unknown error";
       setIndicator("⚠ upload failed — use downloadLast()", "error");
       console.error("[Recording] upload failed after retries", lastErr);
       if (lastResult) {
         lastResult.uploaded = false;
-        lastResult.upload_error = String(lastErr && lastErr.message || lastErr);
+        lastResult.upload_error = String(errText);
       }
       return { ok: false, reason: "upload_failed", error: lastErr };
     }
