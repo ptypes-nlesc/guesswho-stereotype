@@ -113,10 +113,18 @@ if not SECRET_KEY:
         "Please set it in your .env file or system environment."
     )
 
+# Local-mic research stems (POST /audio/upload). Staging may override path.
+AUDIO_STORAGE_DIR = os.path.abspath(
+    env_first("AUDIO_STORAGE_DIR", default=os.path.join(os.path.dirname(__file__), "data", "audio"))
+)
+# Cap per-request body (multipart stem + form fields). Override via env if needed.
+_AUDIO_MAX_UPLOAD_MB = _int_or_default(env_first("AUDIO_MAX_UPLOAD_MB", default="200"), 200)
+
 app.config.update(
     SECRET_KEY=SECRET_KEY,
     APP_NAME=env_first("APP_NAME", default="guesswho-stereotype"),
     TEMPLATES_AUTO_RELOAD=True,
+    MAX_CONTENT_LENGTH=_AUDIO_MAX_UPLOAD_MB * 1024 * 1024,
 )
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
@@ -243,13 +251,18 @@ def get_game_state(game_id):
         # Convert JSON fields and "null" sentinels
         if 'waiting_participants' in data:
             data['waiting_participants'] = json.loads(data['waiting_participants'])
+        if 'last_audio_uploads' in data and isinstance(data['last_audio_uploads'], str):
+            try:
+                data['last_audio_uploads'] = json.loads(data['last_audio_uploads'])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                data['last_audio_uploads'] = None
         if 'round_number' in data:
             try:
                 data['round_number'] = int(data['round_number'])
             except (TypeError, ValueError):
                 data['round_number'] = 1
         # Convert "null" sentinels back to None
-        for key in ['player1_id', 'player2_id', 'recording_id']:
+        for key in ['player1_id', 'player2_id', 'recording_id', 'recording_server_ts']:
             if key in data and data[key] == "null":
                 data[key] = None
         if 'recording_active' in data:
@@ -483,6 +496,66 @@ GAME_STATES = {
 }
 CURRENT_SESSION_GAME_ID = None  # The active game session
 
+AUDIO_UPLOAD_ROLES = frozenset({"player1", "player2", "moderator"})
+
+
+def _ensure_audio_events_schema(cursor):
+    """Add audio_events columns/indexes on older DBs created before stem upload."""
+    cursor.execute(
+        """
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'audio_events'
+        """
+    )
+    cols = {row["name"] for row in cursor.fetchall()}
+    alters = []
+    if "recording_id" not in cols:
+        alters.append("ADD COLUMN recording_id VARCHAR(64) NULL")
+    if "role" not in cols:
+        alters.append("ADD COLUMN role VARCHAR(50) NULL")
+    if "client_received_ts" not in cols:
+        alters.append("ADD COLUMN client_received_ts BIGINT NULL")
+    if "client_recorder_start_ts" not in cols:
+        alters.append("ADD COLUMN client_recorder_start_ts BIGINT NULL")
+    if "client_recorder_stop_ts" not in cols:
+        alters.append("ADD COLUMN client_recorder_stop_ts BIGINT NULL")
+    if "server_start_ts" not in cols:
+        alters.append("ADD COLUMN server_start_ts VARCHAR(64) NULL")
+    if "server_stop_ts" not in cols:
+        alters.append("ADD COLUMN server_stop_ts VARCHAR(64) NULL")
+    if "mime_type" not in cols:
+        alters.append("ADD COLUMN mime_type VARCHAR(128) NULL")
+    if "byte_size" not in cols:
+        alters.append("ADD COLUMN byte_size INT NULL")
+    if "audio_path" in cols:
+        # Widen path for nested game_id/filename layout
+        alters.append("MODIFY COLUMN audio_path VARCHAR(512)")
+    for clause in alters:
+        try:
+            cursor.execute(f"ALTER TABLE audio_events {clause}")
+        except Exception as exc:
+            print(f"audio_events schema migrate skip ({clause}): {exc}")
+
+    cursor.execute(
+        """
+        SELECT INDEX_NAME AS name
+        FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'audio_events'
+        """
+    )
+    indexes = {row["name"] for row in cursor.fetchall()}
+    if "uq_audio_stem" not in indexes:
+        try:
+            cursor.execute(
+                """
+                ALTER TABLE audio_events
+                ADD UNIQUE KEY uq_audio_stem (game_id, recording_id, role)
+                """
+            )
+        except Exception as exc:
+            print(f"audio_events unique index migrate skip: {exc}")
+
 
 def init_db():
     """Ensure all tables exist before running the app."""
@@ -586,23 +659,36 @@ def init_db():
             """
         )
 
-        # Audio Events
+        # Audio Events (one row per local-mic stem per recording take)
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS audio_events (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 game_id VARCHAR(255) NOT NULL,
+                recording_id VARCHAR(64) NOT NULL,
+                role VARCHAR(50) NOT NULL,
                 participant_id VARCHAR(255),
                 start_time DATETIME NOT NULL,
                 end_time DATETIME,
-                audio_path VARCHAR(255),
+                client_received_ts BIGINT,
+                client_recorder_start_ts BIGINT,
+                client_recorder_stop_ts BIGINT,
+                server_start_ts VARCHAR(64),
+                server_stop_ts VARCHAR(64),
+                audio_path VARCHAR(512),
+                mime_type VARCHAR(128),
+                byte_size INT,
                 transcript TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_audio_stem (game_id, recording_id, role),
                 FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
-                FOREIGN KEY (participant_id) REFERENCES participants(id)
+                FOREIGN KEY (participant_id) REFERENCES participants(id),
+                INDEX idx_audio_game (game_id),
+                INDEX idx_audio_recording (recording_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
+        _ensure_audio_events_schema(c)
         
         # Chat Messages
         c.execute(
@@ -1494,6 +1580,12 @@ def _stop_active_recording(game_id, game_state, reason="moderator_stop"):
     game_state["recording_active"] = False
     game_state["recording_id"] = None
     game_state["recording_server_ts"] = None
+    # Fresh stem checklist for this take (clients upload after stop).
+    game_state["last_audio_uploads"] = {
+        "recording_id": recording_id,
+        "server_stop_ts": server_ts,
+        "stems": {},
+    }
     set_game_state(game_id, game_state)
 
     payload = {
@@ -1589,6 +1681,7 @@ def moderator_control_status():
         "player2_id": game_state.get('player2_id'),
         "recording_active": bool(game_state.get("recording_active")),
         "recording_id": game_state.get("recording_id") if game_state.get("recording_active") else None,
+        "last_audio_uploads": game_state.get("last_audio_uploads"),
     })
 
 
@@ -1958,6 +2051,290 @@ def moderator_recording_stop():
         "game_id": moderator_game_id,
         "recording_id": payload.get("recording_id") if payload else None,
         "server_ts": payload.get("server_ts") if payload else None,
+    })
+
+
+def _parse_client_ts(value):
+    """Parse required client epoch-ms timestamp from form fields."""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ms_to_datetime(ms):
+    """Convert epoch milliseconds to naive UTC datetime for DATETIME columns."""
+    return datetime.datetime.fromtimestamp(ms / 1000.0, tz=datetime.timezone.utc).replace(
+        tzinfo=None
+    )
+
+
+def _safe_audio_filename_part(value, fallback="none"):
+    """Sanitize a path segment for stem filenames."""
+    if value is None or value == "":
+        return fallback
+    text = str(value)
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in text)
+    return cleaned[:80] or fallback
+
+
+def _authorize_audio_upload(game_id, role, participant_id, game_state):
+    """Soft auth for stem upload. Returns (ok, error_message, http_status)."""
+    if role not in AUDIO_UPLOAD_ROLES:
+        return False, "Invalid role", 400
+
+    state = game_state.get("state")
+    if state not in ("IN_PROGRESS", "ENDED"):
+        return False, f"Uploads not allowed in state: {state}", 400
+
+    if role == "moderator":
+        if not is_moderator():
+            return False, "Unauthorized", 403
+        # Prefer the moderator's bound session game; allow if it matches.
+        mod_game = session.get("moderator_session_game_id") or get_current_session_game_id()
+        if mod_game and mod_game != game_id:
+            return False, "game_id does not match moderator session", 403
+        return True, None, 200
+
+    if not participant_id:
+        return False, "participant_id required for player uploads", 400
+
+    # After role swap, player1_id/player2_id flip before late uploads arrive.
+    # Accept either assigned participant; trust client role as the stem label for
+    # the take that was just recorded on that page.
+    assigned = {game_state.get("player1_id"), game_state.get("player2_id")}
+    if participant_id not in assigned:
+        return False, "participant_id is not assigned to this game", 403
+
+    return True, None, 200
+
+
+def _record_audio_upload_status(game_id, game_state, recording_id, role, stem_info):
+    """Update last_audio_uploads checklist in game state after a successful save."""
+    uploads = game_state.get("last_audio_uploads")
+    if not isinstance(uploads, dict) or uploads.get("recording_id") != recording_id:
+        uploads = {
+            "recording_id": recording_id,
+            "server_stop_ts": None,
+            "stems": {},
+        }
+    stems = dict(uploads.get("stems") or {})
+    stems[role] = stem_info
+    uploads["stems"] = stems
+    game_state["last_audio_uploads"] = uploads
+    set_game_state(game_id, game_state)
+    return uploads
+
+
+@app.route("/audio/upload", methods=["POST"])
+def audio_upload():
+    """Accept a local-mic stem for a recording take (multipart).
+
+    Expected form fields:
+      file, game_id, recording_id, role, participant_id (optional for moderator),
+      client_received_ts, client_recorder_start_ts, client_recorder_stop_ts,
+      server_ts, server_stop_ts (optional), mime_type (optional)
+    """
+    game_id = (request.form.get("game_id") or "").strip()
+    recording_id = (request.form.get("recording_id") or "").strip()
+    role = (request.form.get("role") or "").strip()
+    participant_id = (request.form.get("participant_id") or "").strip() or None
+
+    if not game_id or not recording_id or not role:
+        return jsonify({
+            "status": "error",
+            "message": "game_id, recording_id, and role are required",
+        }), 400
+
+    client_received_ts = _parse_client_ts(request.form.get("client_received_ts"))
+    client_start_ts = _parse_client_ts(request.form.get("client_recorder_start_ts"))
+    client_stop_ts = _parse_client_ts(request.form.get("client_recorder_stop_ts"))
+    if client_received_ts is None or client_start_ts is None or client_stop_ts is None:
+        return jsonify({
+            "status": "error",
+            "message": "client_received_ts, client_recorder_start_ts, and client_recorder_stop_ts are required",
+        }), 400
+    if client_stop_ts < client_start_ts:
+        return jsonify({
+            "status": "error",
+            "message": "client_recorder_stop_ts must be >= client_recorder_start_ts",
+        }), 400
+
+    game_state = get_game_state(game_id)
+    if not game_state:
+        return jsonify({"status": "error", "message": "Unknown game_id"}), 404
+
+    ok, err, status = _authorize_audio_upload(game_id, role, participant_id, game_state)
+    if not ok:
+        return jsonify({"status": "error", "message": err}), status
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"status": "error", "message": "file is required"}), 400
+
+    raw = upload.read()
+    if not raw:
+        return jsonify({"status": "error", "message": "empty audio file"}), 400
+
+    mime_type = (request.form.get("mime_type") or upload.mimetype or "audio/webm").strip()
+    server_start_ts = (request.form.get("server_ts") or "").strip() or None
+    server_stop_ts = (request.form.get("server_stop_ts") or "").strip() or None
+
+    # Extension from mime (default webm)
+    if "ogg" in mime_type:
+        ext = "ogg"
+    elif "mp4" in mime_type or "m4a" in mime_type:
+        ext = "m4a"
+    else:
+        ext = "webm"
+
+    participant_part = _safe_audio_filename_part(
+        participant_id if role != "moderator" else "moderator",
+        fallback="none",
+    )
+    safe_recording = _safe_audio_filename_part(recording_id, fallback="recording")
+    safe_role = _safe_audio_filename_part(role, fallback="role")
+    safe_game = _safe_audio_filename_part(game_id, fallback="game")
+
+    rel_name = f"{safe_recording}_{safe_role}_{participant_part}.{ext}"
+    game_dir = os.path.join(AUDIO_STORAGE_DIR, safe_game)
+    os.makedirs(game_dir, exist_ok=True)
+    abs_path = os.path.join(game_dir, rel_name)
+    part_path = abs_path + ".part"
+
+    try:
+        with open(part_path, "wb") as fh:
+            fh.write(raw)
+        os.replace(part_path, abs_path)
+    except OSError as exc:
+        try:
+            if os.path.exists(part_path):
+                os.remove(part_path)
+        except OSError:
+            pass
+        print(f"audio upload write failed: {exc}")
+        return jsonify({"status": "error", "message": "failed to store audio"}), 500
+
+    # Path stored relative to AUDIO_STORAGE_DIR for portability
+    audio_path = f"{safe_game}/{rel_name}"
+    start_time = _ms_to_datetime(client_start_ts)
+    end_time = _ms_to_datetime(client_stop_ts)
+    byte_size = len(raw)
+
+    try:
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            if participant_id:
+                c.execute(
+                    "INSERT INTO participants (id) VALUES (%s) ON DUPLICATE KEY UPDATE id=id",
+                    (participant_id,),
+                )
+            # Ensure parent game row exists for FK (tests / recovery)
+            c.execute(
+                "INSERT INTO games (id) VALUES (%s) ON DUPLICATE KEY UPDATE id=id",
+                (game_id,),
+            )
+            c.execute(
+                """
+                INSERT INTO audio_events (
+                    game_id, recording_id, role, participant_id,
+                    start_time, end_time,
+                    client_received_ts, client_recorder_start_ts, client_recorder_stop_ts,
+                    server_start_ts, server_stop_ts,
+                    audio_path, mime_type, byte_size
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s
+                )
+                ON DUPLICATE KEY UPDATE
+                    participant_id = VALUES(participant_id),
+                    start_time = VALUES(start_time),
+                    end_time = VALUES(end_time),
+                    client_received_ts = VALUES(client_received_ts),
+                    client_recorder_start_ts = VALUES(client_recorder_start_ts),
+                    client_recorder_stop_ts = VALUES(client_recorder_stop_ts),
+                    server_start_ts = VALUES(server_start_ts),
+                    server_stop_ts = VALUES(server_stop_ts),
+                    audio_path = VALUES(audio_path),
+                    mime_type = VALUES(mime_type),
+                    byte_size = VALUES(byte_size),
+                    timestamp = CURRENT_TIMESTAMP
+                """,
+                (
+                    game_id,
+                    recording_id,
+                    role,
+                    participant_id,
+                    start_time,
+                    end_time,
+                    client_received_ts,
+                    client_start_ts,
+                    client_stop_ts,
+                    server_start_ts,
+                    server_stop_ts,
+                    audio_path,
+                    mime_type,
+                    byte_size,
+                ),
+            )
+            c.execute(
+                """
+                SELECT id FROM audio_events
+                WHERE game_id = %s AND recording_id = %s AND role = %s
+                """,
+                (game_id, recording_id, role),
+            )
+            row = c.fetchone()
+            audio_event_id = row["id"] if row else None
+    except Exception as exc:
+        print(f"audio_events insert failed: {exc}")
+        return jsonify({"status": "error", "message": "failed to record audio event"}), 500
+
+    stem_info = {
+        "status": "ok",
+        "participant_id": participant_id,
+        "byte_size": byte_size,
+        "audio_path": audio_path,
+        "mime_type": mime_type,
+    }
+    # Refresh state in case stop initialized checklist after we loaded it
+    game_state = get_game_state(game_id) or game_state
+    uploads = _record_audio_upload_status(
+        game_id, game_state, recording_id, role, stem_info
+    )
+
+    payload = {
+        "game_id": game_id,
+        "recording_id": recording_id,
+        "role": role,
+        "participant_id": participant_id,
+        "audio_path": audio_path,
+        "byte_size": byte_size,
+        "audio_event_id": audio_event_id,
+    }
+    socketio.emit("audio_upload_complete", payload, to=f"game:{game_id}")
+    record_event(
+        role,
+        "audio_upload",
+        game_id,
+        text=f"recording_id={recording_id}; path={audio_path}; bytes={byte_size}",
+        participant_id=participant_id,
+    )
+    print(f"🎤 Audio uploaded {game_id}/{rel_name} ({byte_size} bytes)")
+
+    return jsonify({
+        "status": "ok",
+        "audio_path": audio_path,
+        "audio_event_id": audio_event_id,
+        "byte_size": byte_size,
+        "recording_id": recording_id,
+        "role": role,
+        "last_audio_uploads": uploads,
     })
 
 

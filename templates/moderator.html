@@ -276,16 +276,8 @@
             setTimeout(checkEndOfGame, 100);
         });
 
-        socket.on("roles_swapped", data => {
-            console.log("Roles swapped, refreshing moderator view");
-            appendMessage(`<em style="color: #0066cc;">⚠️ Roles have been swapped! Refreshing view...</em>`, "color: #0066cc; font-weight: bold;");
-            // Reload page to show new secret card and reset grid
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-        });
-
         // --- Voice (WebRTC) -------------------------------------------
+        let sessionRecorder = null;
         if (!readOnly) {
             voice = setupVoice({
                 socket,
@@ -297,7 +289,7 @@
                 autoJoin: true,
             });
 
-            const sessionRecorder = createSessionRecorder({
+            sessionRecorder = createSessionRecorder({
                 socket,
                 gameId,
                 role: "moderator",
@@ -308,6 +300,25 @@
             });
             window.sessionRecorder = sessionRecorder;
         }
+
+        socket.on("roles_swapped", async data => {
+            console.log("Roles swapped, refreshing moderator view");
+            appendMessage(
+                `<em style="color: #0066cc;">⚠️ Roles swapped — uploading audio, then refreshing…</em>`,
+                "color: #0066cc; font-weight: bold;"
+            );
+            if (sessionRecorder && typeof sessionRecorder.prepareForNavigation === "function") {
+                sessionRecorder.prepareForNavigation();
+            }
+            if (sessionRecorder && typeof sessionRecorder.waitForIdle === "function") {
+                try {
+                    await sessionRecorder.waitForIdle(60000);
+                } catch (err) {
+                    console.warn("waitForIdle before moderator reload failed", err);
+                }
+            }
+            window.location.reload();
+        });
     </script>
 </body>
 
