@@ -52,48 +52,19 @@
         .state-IN_PROGRESS { background: #dbeafe; color: #1d4ed8; }
         .state-ENDED { background: #f3e8ff; color: #7e22ce; }
 
+        /* All session controls on one row */
         .control-buttons {
             display: flex;
-            flex-direction: column;
-            gap: 14px;
+            flex-wrap: nowrap;
+            align-items: stretch;
+            gap: 8px;
             margin: 20px 0 28px;
-        }
-
-        .control-step {
+            padding: 14px;
             background: #fff;
             border: 1px solid #e2e8f0;
             border-radius: 12px;
-            padding: 16px 18px 18px;
             box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-            transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-
-        .control-step.has-active {
-            border-color: #94a3b8;
-            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
-        }
-
-        .control-step h3 {
-            margin: 0 0 4px;
-            font-size: 0.78em;
-            font-weight: 700;
-            color: #64748b;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            text-align: left;
-        }
-
-        .control-step .step-note {
-            margin: 0 0 14px;
-            font-size: 0.9em;
-            color: #64748b;
-            line-height: 1.45;
-        }
-
-        .control-step-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
+            overflow-x: auto;
         }
 
         /*
@@ -103,16 +74,19 @@
          * - enabled (active) = full colour + ring highlight
          */
         .control-btn {
-            flex: 1;
-            min-width: 148px;
-            padding: 13px 18px;
-            font-size: 0.95em;
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 12px 10px;
+            font-size: 0.82em;
+            line-height: 1.25;
             border-radius: 10px;
             cursor: pointer;
             font-weight: 650;
             letter-spacing: 0.01em;
             border: 2px solid transparent;
             color: #fff;
+            white-space: normal;
+            text-align: center;
             transition:
                 background 0.15s ease,
                 border-color 0.15s ease,
@@ -134,10 +108,11 @@
             opacity: 1;
             filter: none;
             box-shadow:
-                0 0 0 3px rgba(255, 255, 255, 0.9),
-                0 0 0 6px var(--btn-ring, rgba(15, 118, 110, 0.35)),
-                0 6px 16px rgba(15, 23, 42, 0.12);
+                0 0 0 2px rgba(255, 255, 255, 0.95),
+                0 0 0 4px var(--btn-ring, rgba(15, 118, 110, 0.4)),
+                0 4px 12px rgba(15, 23, 42, 0.12);
             transform: translateY(-1px);
+            z-index: 1;
         }
 
         .control-btn:not(:disabled):hover {
@@ -380,11 +355,41 @@
             100% { transform: rotate(360deg); }
         }
 
+        .info-section.workflow-section ol {
+            margin-top: 12px;
+        }
+
+        .info-section.workflow-section li strong {
+            color: #0f172a;
+        }
+
+        .workflow-tip {
+            margin: 16px 0 0;
+            padding: 12px 14px;
+            background: #f8fafc;
+            border-left: 4px solid #2563eb;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.92em;
+            color: #475569;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 900px) {
+            .control-buttons {
+                flex-wrap: wrap;
+            }
+            .control-btn {
+                flex: 1 1 calc(33.33% - 8px);
+                min-width: 120px;
+            }
+        }
+
         @media (max-width: 640px) {
             .participant-info {
                 grid-template-columns: 1fr;
             }
             .control-btn {
+                flex: 1 1 100%;
                 min-width: 100%;
             }
         }
@@ -413,40 +418,13 @@
         </div>
 
         {% if staff_role != 'auditor' %}
-        <div class="control-buttons">
-            <div class="control-step" data-step="before">
-                <h3>1 · Voor het spel</h3>
-                <p class="step-note">Maak tokens, open de toegang, controleer je microfoon en wacht tot 2 deelnemers klaar zijn.</p>
-                <div class="control-step-actions">
-                    <button id="btn-open" class="control-btn btn-open" type="button">Toegang openen</button>
-                    <button id="btn-start" class="control-btn btn-start" type="button">Spel starten</button>
-                </div>
-            </div>
-
-            <div class="control-step" data-step="recording">
-                <h3>2 · Na start van het spel</h3>
-                <p class="step-note">Start de opname zodra iedereen in de voice zit. Laat de opname lopen tijdens beide rondes.</p>
-                <div class="control-step-actions">
-                    <button id="btn-record-start" class="control-btn btn-record-start" type="button">Opname starten</button>
-                </div>
-            </div>
-
-            <div class="control-step" data-step="during">
-                <h3>3 · Tijdens het spel</h3>
-                <p class="step-note">Wissel rollen voor ronde 2 — de opname van ronde 1 stopt en ronde 2 start automatisch.</p>
-                <div class="control-step-actions">
-                    <button id="btn-swap" class="control-btn btn-swap" type="button">Rollen wisselen</button>
-                </div>
-            </div>
-
-            <div class="control-step" data-step="finish">
-                <h3>4 · Afronden</h3>
-                <p class="step-note">Stop eerst de opname, beëindig daarna de sessie.</p>
-                <div class="control-step-actions">
-                    <button id="btn-record-stop" class="control-btn btn-record-stop" type="button">Opname stoppen</button>
-                    <button id="btn-end" class="control-btn btn-end" type="button">Spel beëindigen</button>
-                </div>
-            </div>
+        <div class="control-buttons" role="toolbar" aria-label="Sessiebediening">
+            <button id="btn-open" class="control-btn btn-open" type="button">Toegang openen</button>
+            <button id="btn-start" class="control-btn btn-start" type="button">Spel starten</button>
+            <button id="btn-record-start" class="control-btn btn-record-start" type="button">Opname starten</button>
+            <button id="btn-swap" class="control-btn btn-swap" type="button">Rollen wisselen</button>
+            <button id="btn-record-stop" class="control-btn btn-record-stop" type="button">Opname stoppen</button>
+            <button id="btn-end" class="control-btn btn-end" type="button">Spel beëindigen</button>
         </div>
 
         <div class="info-section">
@@ -459,17 +437,52 @@
             <p id="mic-check-status" style="margin-top: 10px; color: #555;"></p>
         </div>
 
-        <div class="info-section">
-            <h3>📋 Sessiestappen</h3>
+        <div class="info-section workflow-section">
+            <h3>📋 Instructies — sessiestappen</h3>
+            <p>
+                Gebruik de knoppenbalk hierboven in volgorde. Alleen de knoppen die nu mogen, zijn helder gekleurd;
+                de rest is grijs en niet klikbaar.
+            </p>
             <ol>
-                <li><strong>Tokens genereren</strong> en deellinks delen</li>
-                <li><strong>Microfoon controleren</strong>, daarna <strong>Toegang openen</strong></li>
-                <li>Wacht tot <strong>2 deelnemers</strong> zijn binnengekomen</li>
-                <li><strong>Spel starten</strong> — open de moderatorweergave; wacht op voice</li>
-                <li><strong>Opname starten</strong> — eenmalig, zodra het spel loopt</li>
-                <li>Speel ronde 1 → <strong>Rollen wisselen</strong> (opname gaat door in ronde 2)</li>
-                <li><strong>Opname stoppen</strong>, daarna <strong>Spel beëindigen</strong></li>
+                <li>
+                    <strong>Tokens genereren</strong> (onderaan) en deellinks naar deelnemers sturen.
+                    Tokens zijn eenmalig en 30 dagen geldig.
+                </li>
+                <li>
+                    <strong>Microfoon controleren</strong> tot de status “klaar” is.
+                    Zonder geldige microfoon kun je het spel niet starten.
+                </li>
+                <li>
+                    <strong>Toegang openen</strong> — deelnemers kunnen dan via hun link wachten.
+                    Wacht tot <strong>2 deelnemers</strong> in de wachtruimte staan (status wordt OPEN → KLAAR).
+                </li>
+                <li>
+                    <strong>Spel starten</strong> — opent de moderatorweergave.
+                    Wacht tot voice tussen moderator en beide spelers werkt (3 verbindingen).
+                </li>
+                <li>
+                    <strong>Opname starten</strong> — eenmalig, zodra iedereen in voice zit.
+                    Laat de opname lopen tijdens <em>beide</em> rondes (niet tussentijds stoppen tenzij nodig).
+                </li>
+                <li>
+                    Speel <strong>ronde 1</strong>. Daarna <strong>Rollen wisselen</strong> voor ronde 2:
+                    de opname van ronde 1 wordt afgerond en geüpload; ronde 2 start automatisch een nieuwe take.
+                    Chat en weergaven wisselen mee na de doorverwijzing.
+                </li>
+                <li>
+                    Speel <strong>ronde 2</strong>. Controleer eventueel de sectie “Audio-opnames”
+                    (3/3 stems na een stop).
+                </li>
+                <li>
+                    <strong>Opname stoppen</strong>, daarna <strong>Spel beëindigen</strong>.
+                    Open daarna opnieuw de toegang voor het volgende paar deelnemers.
+                </li>
             </ol>
+            <p class="workflow-tip">
+                <strong>Tip:</strong> Stop de opname pas als ronde 2 klaar is. Bij “Rollen wisselen”
+                hoef je de opname niet handmatig te herstarten. Bij uploadfouten kan de deelnemer
+                lokaal downloaden; de checklist toont of alle stems binnen zijn.
+            </p>
         </div>
 
         <div class="info-section">
@@ -533,13 +546,6 @@
             player2: 'speler 2',
             moderator: 'moderator',
         };
-
-        function markActiveSteps() {
-            document.querySelectorAll('.control-step').forEach((step) => {
-                const hasActive = !!step.querySelector('.control-btn:not(:disabled)');
-                step.classList.toggle('has-active', hasActive);
-            });
-        }
 
         async function updateStatus() {
             try {
@@ -704,8 +710,6 @@
                     btnRecordStart.disabled = false;
                 }
             }
-
-            markActiveSteps();
         }
 
         if (staffRole !== 'auditor') {
