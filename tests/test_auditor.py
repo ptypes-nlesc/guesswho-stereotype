@@ -41,7 +41,8 @@ class TestAuditorAuth:
 
         res = client.get("/dashboard")
         assert res.status_code == 200
-        assert b"Read-only auditor mode" in res.data
+        # Dashboard UI is Dutch; auditor banner text:
+        assert b"Alleen-lezen (auditor)" in res.data
 
     def test_auditor_login_rejects_wrong_password(self, client):
         res = client.post(

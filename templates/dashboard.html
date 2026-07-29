@@ -1,199 +1,421 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 
 <head>
     <meta charset="UTF-8">
-    <title>Moderator Dashboard – Game Control Panel</title>
+    <title>Moderator Dashboard – Spelbediening</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
         .control-panel {
-            max-width: 900px;
+            max-width: 920px;
             margin: 20px auto;
-            padding: 30px;
+            padding: 28px 32px 40px;
         }
+
+        .control-panel > h1 {
+            text-align: center;
+            color: #0f172a;
+            font-size: 1.65rem;
+            margin: 0 0 20px;
+            letter-spacing: -0.02em;
+        }
+
         .state-display {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
+            background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+            padding: 20px 22px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            border: 1px solid #e2e8f0;
         }
+
+        .state-display h2 {
+            margin: 0 0 12px;
+            font-size: 1.05rem;
+            color: #334155;
+            text-align: left;
+        }
+
         .state-badge {
             display: inline-block;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 1.1em;
-            margin: 10px 0;
-        }
-        .state-CLOSED { background: #ffebee; color: #c62828; }
-        .state-OPEN { background: #e8f5e9; color: #2e7d32; }
-        .state-READY { background: #fff3e0; color: #e65100; }
-        .state-IN_PROGRESS { background: #e3f2fd; color: #1565c0; }
-        .state-ENDED { background: #f3e5f5; color: #6a1b9a; }
-        .control-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin: 20px 0;
-        }
-        .control-step {
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 10px;
-            padding: 16px 18px;
-            border-left: 3px solid #0f766e;
-        }
-        .control-step h3 {
-            margin: 0 0 4px;
-            font-size: 0.9em;
-            font-weight: 600;
-            color: #134e4a;
-            letter-spacing: 0.02em;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 0.85em;
+            margin: 6px 0 10px;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
         }
-        .control-step .step-note {
-            margin: 0 0 14px;
-            font-size: 0.88em;
-            color: #6b7280;
-            line-height: 1.45;
-        }
-        .control-step-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-        /* One shared button system — hierarchy via primary/secondary, not rainbow colours */
-        .control-btn {
-            flex: 1;
-            min-width: 150px;
-            padding: 12px 18px;
-            font-size: 0.95em;
+
+        .state-CLOSED { background: #fee2e2; color: #b91c1c; }
+        .state-OPEN { background: #dcfce7; color: #15803d; }
+        .state-READY { background: #ffedd5; color: #c2410c; }
+        .state-IN_PROGRESS { background: #dbeafe; color: #1d4ed8; }
+        .state-ENDED { background: #f3e8ff; color: #7e22ce; }
+
+        .action-feedback {
+            margin: 12px 0 0;
+            padding: 10px 12px;
             border-radius: 8px;
-            cursor: pointer;
+            font-size: 0.92em;
             font-weight: 600;
-            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-            border: 1px solid #0f766e;
-            background: #0f766e;
+            line-height: 1.4;
+        }
+        .action-feedback.is-ok {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+        .action-feedback.is-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        .action-feedback.is-info {
+            background: #e0f2fe;
+            color: #075985;
+            border: 1px solid #7dd3fc;
+        }
+
+        /* All session controls on one row */
+        .control-buttons {
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: stretch;
+            gap: 8px;
+            margin: 20px 0 28px;
+            padding: 14px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            overflow-x: auto;
+        }
+
+        /*
+         * Button system:
+         * - every action has a full colour (semantic)
+         * - disabled = muted / washed out
+         * - enabled (active) = full colour + ring highlight
+         */
+        .control-btn {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 12px 10px;
+            font-size: 0.82em;
+            line-height: 1.25;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 650;
+            letter-spacing: 0.01em;
+            border: 2px solid transparent;
             color: #fff;
+            white-space: normal;
+            text-align: center;
+            transition:
+                background 0.15s ease,
+                border-color 0.15s ease,
+                box-shadow 0.15s ease,
+                transform 0.12s ease,
+                filter 0.15s ease,
+                opacity 0.15s ease;
         }
-        .control-btn:hover:not(:disabled) {
-            background: #0d9488;
-            border-color: #0d9488;
-            box-shadow: 0 1px 3px rgba(15, 118, 110, 0.25);
-        }
+
         .control-btn:disabled {
-            opacity: 0.4;
+            opacity: 0.38;
+            filter: grayscale(0.35) saturate(0.55);
             cursor: not-allowed;
             box-shadow: none;
+            transform: none;
         }
-        .control-btn.btn-secondary {
-            background: #fff;
-            color: #0f766e;
-            border-color: #99f6e4;
+
+        .control-btn:not(:disabled) {
+            opacity: 1;
+            filter: none;
+            box-shadow:
+                0 0 0 2px rgba(255, 255, 255, 0.95),
+                0 0 0 4px var(--btn-ring, rgba(15, 118, 110, 0.4)),
+                0 4px 12px rgba(15, 23, 42, 0.12);
+            transform: translateY(-1px);
+            z-index: 1;
         }
-        .control-btn.btn-secondary:hover:not(:disabled) {
-            background: #f0fdfa;
+
+        .control-btn:not(:disabled):hover {
+            filter: brightness(1.06);
+            transform: translateY(-2px);
+        }
+
+        .control-btn:not(:disabled):active {
+            transform: translateY(0);
+        }
+
+        /* Semantic colours — all solid (no white/outline secondary) */
+        .control-btn.btn-open {
+            --btn-ring: rgba(13, 148, 136, 0.4);
+            background: #0d9488;
             border-color: #0f766e;
-            box-shadow: none;
         }
+        .control-btn.btn-start {
+            --btn-ring: rgba(37, 99, 235, 0.4);
+            background: #2563eb;
+            border-color: #1d4ed8;
+        }
+        .control-btn.btn-record-start {
+            --btn-ring: rgba(220, 38, 38, 0.4);
+            background: #dc2626;
+            border-color: #b91c1c;
+        }
+        .control-btn.btn-record-stop {
+            --btn-ring: rgba(190, 24, 93, 0.4);
+            background: #be185d;
+            border-color: #9d174d;
+        }
+        .control-btn.btn-swap {
+            --btn-ring: rgba(217, 119, 6, 0.4);
+            background: #d97706;
+            border-color: #b45309;
+        }
+        .control-btn.btn-end {
+            --btn-ring: rgba(124, 58, 237, 0.4);
+            background: #7c3aed;
+            border-color: #6d28d9;
+        }
+        .control-btn.btn-tokens {
+            --btn-ring: rgba(79, 70, 229, 0.4);
+            background: #4f46e5;
+            border-color: #4338ca;
+        }
+
         .recording-badge {
             display: inline-block;
             margin-left: 10px;
             padding: 4px 10px;
-            border-radius: 12px;
-            background: #f0fdfa;
-            color: #0f766e;
-            font-size: 0.85em;
-            font-weight: bold;
+            border-radius: 999px;
+            background: #fee2e2;
+            color: #b91c1c;
+            font-size: 0.8em;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            animation: rec-pulse 1.4s ease-in-out infinite;
         }
+
+        @keyframes rec-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.65; }
+        }
+
         .info-section {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-            border: 1px solid #ddd;
+            background: #fff;
+            padding: 20px 22px;
+            border-radius: 12px;
+            margin: 18px 0;
+            border: 1px solid #e2e8f0;
         }
+
+        .info-section h3 {
+            margin: 0 0 10px;
+            text-align: left;
+            color: #0f172a;
+            font-size: 1.05rem;
+        }
+
+        .info-section p,
+        .info-section li,
+        .info-section small,
+        .info-section label {
+            color: #475569;
+            line-height: 1.5;
+        }
+
+        .info-section ol {
+            margin: 8px 0 0;
+            padding-left: 1.25rem;
+        }
+
+        .info-section li {
+            margin: 6px 0;
+        }
+
+        .info-section.notice-auditor {
+            background: #fffbeb;
+            border-color: #fcd34d;
+            color: #92400e;
+        }
+
         .participant-info {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-top: 15px;
+            gap: 14px;
+            margin-top: 12px;
         }
+
         .participant-card {
-            background: #f9f9f9;
-            padding: 15px;
-            border-radius: 5px;
-            border-left: 4px solid #2196F3;
+            background: #f8fafc;
+            padding: 14px 16px;
+            border-radius: 10px;
+            border-left: 4px solid #2563eb;
         }
-        .url-box {
-            background: #263238;
-            color: #aed581;
-            padding: 10px;
-            border-radius: 5px;
-            font-family: monospace;
-            font-size: 0.9em;
-            margin: 10px 0;
-            word-break: break-all;
-            cursor: pointer;
+
+        .participant-card strong {
+            color: #0f172a;
         }
-        .url-box:hover {
-            background: #37474f;
-        }
-        .log-section {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin-top: 20px;
-            border: 1px solid #ddd;
-        }
-        .log-entry {
-            padding: 8px;
-            border-bottom: 1px solid #eee;
-            font-family: monospace;
-            font-size: 0.9em;
-        }
-        .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
+
+        .link-btn {
             display: inline-block;
-            margin-left: 10px;
-            vertical-align: middle;
+            margin: 4px 0;
+            padding: 8px 14px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            border: 1px solid #bfdbfe;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+
+        .link-btn:hover {
+            background: #dbeafe;
         }
+
+        .token-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            margin-top: 14px;
+        }
+
+        .token-row input[type="number"] {
+            padding: 10px 12px;
+            width: 88px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+
+        .control-btn.btn-tokens {
+            flex: initial;
+            min-width: 200px;
+        }
+
         .mic-check-btn {
-            background: #2196F3;
-            color: white;
-            border: none;
+            background: #2563eb;
+            color: #fff;
+            border: 2px solid #1d4ed8;
             padding: 12px 20px;
             font-size: 1em;
-            border-radius: 5px;
+            font-weight: 650;
+            border-radius: 10px;
             cursor: pointer;
-            min-width: 180px;
+            min-width: 200px;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
         }
+
+        .mic-check-btn:hover:not(:disabled) {
+            filter: brightness(1.06);
+        }
+
         .mic-check-btn:disabled {
-            background: #90caf9;
+            background: #93c5fd;
+            border-color: #93c5fd;
             cursor: wait;
+            box-shadow: none;
         }
+
         .mic-level {
             height: 8px;
-            background: #e0e0e0;
+            background: #e2e8f0;
             border-radius: 4px;
             margin-top: 12px;
             overflow: hidden;
             max-width: 320px;
         }
+
         .mic-level-bar {
             height: 100%;
             width: 0%;
-            background: #4CAF50;
+            background: #16a34a;
             transition: width 0.08s linear;
+        }
+
+        .stem-ok { color: #15803d; margin-right: 12px; font-weight: 600; }
+        .stem-pending { color: #c2410c; margin-right: 12px; font-weight: 600; }
+
+        .footer {
+            margin-top: 28px;
+            padding-top: 18px;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+            color: #64748b;
+        }
+
+        .footer button[type="submit"] {
+            margin-top: 10px;
+            background: #475569;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .footer button[type="submit"]:hover {
+            background: #334155;
+        }
+
+        .spinner {
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #2563eb;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .info-section.workflow-section ol {
+            margin-top: 12px;
+        }
+
+        .info-section.workflow-section li strong {
+            color: #0f172a;
+        }
+
+        .workflow-tip {
+            margin: 16px 0 0;
+            padding: 12px 14px;
+            background: #f8fafc;
+            border-left: 4px solid #2563eb;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.92em;
+            color: #475569;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 900px) {
+            .control-buttons {
+                flex-wrap: wrap;
+            }
+            .control-btn {
+                flex: 1 1 calc(33.33% - 8px);
+                min-width: 120px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .participant-info {
+                grid-template-columns: 1fr;
+            }
+            .control-btn {
+                flex: 1 1 100%;
+                min-width: 100%;
+            }
         }
     </style>
     <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
@@ -205,119 +427,127 @@
     </header>
 
     <div class="control-panel">
-        <h1>{% if staff_role == 'auditor' %}👁️ Session Observer{% else %}🎮 Game Control Panel{% endif %}</h1>
+        <h1>{% if staff_role == 'auditor' %}👁️ Sessiemonitor{% else %}🎮 Spelbediening{% endif %}</h1>
 
         {% if staff_role == 'auditor' %}
-        <div class="info-section" style="background:#fff8e1; border-color:#ffcc80;">
-            <strong>Read-only auditor mode.</strong> You can monitor the active session but cannot change game state, generate tokens, or send messages.
+        <div class="info-section notice-auditor">
+            <strong>Alleen-lezen (auditor).</strong>
+            Je kunt de actieve sessie volgen, maar geen spelstatus wijzigen, tokens maken of berichten sturen.
         </div>
         {% endif %}
 
         <div class="state-display" id="state-display">
-            <h2>Current Status <div class="spinner"></div></h2>
-            <div id="status-content">Loading...</div>
+            <h2>Huidige status <div class="spinner"></div></h2>
+            <div id="status-content">Laden…</div>
+            <p id="action-feedback" class="action-feedback" role="status" aria-live="polite" hidden></p>
         </div>
 
         {% if staff_role != 'auditor' %}
-        <div class="control-buttons">
-            <div class="control-step">
-                <h3>1 · Before the game</h3>
-                <p class="step-note">Open entry after tokens; check mic below; wait until 2 participants are ready.</p>
-                <div class="control-step-actions">
-                    <button id="btn-open" class="control-btn btn-secondary btn-open">Open Entry</button>
-                    <button id="btn-start" class="control-btn btn-start">Start Game</button>
-                </div>
-            </div>
-
-            <div class="control-step">
-                <h3>2 · After the game has started</h3>
-                <p class="step-note">Start recording once everyone is in voice. Leave it running through both rounds.</p>
-                <div class="control-step-actions">
-                    <button id="btn-record-start" class="control-btn btn-record-start">Start Recording</button>
-                </div>
-            </div>
-
-            <div class="control-step">
-                <h3>3 · During the game</h3>
-                <p class="step-note">Swap roles for round 2 — recording ends the round&nbsp;1 take and starts round&nbsp;2 automatically.</p>
-                <div class="control-step-actions">
-                    <button id="btn-swap" class="control-btn btn-secondary btn-start">Swap Roles</button>
-                </div>
-            </div>
-
-            <div class="control-step">
-                <h3>4 · When finished</h3>
-                <p class="step-note">Stop recording first, then end the game session.</p>
-                <div class="control-step-actions">
-                    <button id="btn-record-stop" class="control-btn btn-secondary btn-record-stop">Stop Recording</button>
-                    <button id="btn-end" class="control-btn btn-end">End Game</button>
-                </div>
-            </div>
+        <div class="control-buttons" role="toolbar" aria-label="Sessiebediening">
+            <button id="btn-open" class="control-btn btn-open" type="button">Toegang openen</button>
+            <button id="btn-start" class="control-btn btn-start" type="button">Spel starten</button>
+            <button id="btn-record-start" class="control-btn btn-record-start" type="button">Opname starten</button>
+            <button id="btn-swap" class="control-btn btn-swap" type="button">Rollen wisselen</button>
+            <button id="btn-record-stop" class="control-btn btn-record-stop" type="button">Opname stoppen</button>
+            <button id="btn-end" class="control-btn btn-end" type="button">Spel beëindigen</button>
         </div>
 
         <div class="info-section">
-            <h3>🎙️ Microphone Setup (required)</h3>
-            <p>Check your microphone before starting the game. Voice connects automatically in the moderator view — use Mute to silence yourself.</p>
-            <button id="mic-check-btn" class="mic-check-btn" type="button">Check microphone</button>
+            <h3>🎙️ Microfoon (verplicht)</h3>
+            <p>Controleer je microfoon voordat je het spel start. In de moderatorweergave verbindt voice automatisch.</p>
+            <button id="mic-check-btn" class="mic-check-btn" type="button">Microfoon controleren</button>
             <div class="mic-level" aria-hidden="true">
                 <div id="mic-level-bar" class="mic-level-bar"></div>
             </div>
             <p id="mic-check-status" style="margin-top: 10px; color: #555;"></p>
         </div>
 
-        <div class="info-section">
-            <h3>📋 Session workflow</h3>
+        <div class="info-section workflow-section">
+            <h3>📋 Instructies — sessiestappen</h3>
+            <p>
+                Gebruik de knoppenbalk hierboven in volgorde. Alleen de knoppen die nu mogen, zijn helder gekleurd;
+                de rest is niet klikbaar.
+            </p>
             <ol>
-                <li><strong>Generate tokens</strong> and share join links</li>
-                <li><strong>Check microphone</strong>, then <strong>Open Entry</strong></li>
-                <li>Wait until <strong>2 participants</strong> have joined</li>
-                <li><strong>Start Game</strong> — open moderator view; wait for voice</li>
-                <li><strong>Start Recording</strong> — once only, after the game is running</li>
-                <li>Play round 1 → <strong>Swap Roles</strong> (recording continues into round 2 automatically)</li>
-                <li><strong>Stop Recording</strong>, then <strong>End Game</strong></li>
+                <li>
+                    <strong>Tokens genereren</strong> (onderaan) en deellinks naar deelnemers sturen.
+                    Tokens zijn eenmalig en 30 dagen geldig.
+                </li>
+                <li>
+                    <strong>Microfoon controleren</strong> tot de status “klaar” is.
+                    Zonder geldige microfoon kun je het spel niet starten.
+                </li>
+                <li>
+                    <strong>Toegang openen</strong> — deelnemers kunnen dan via hun link wachten.
+                    Wacht tot <strong>2 deelnemers</strong> in de wachtruimte staan (status wordt OPEN → KLAAR).
+                </li>
+                <li>
+                    <strong>Spel starten</strong> — opent de moderatorweergave.
+                    Wacht tot voice tussen moderator en beide spelers werkt (3 verbindingen).
+                </li>
+                <li>
+                    <strong>Opname starten</strong> — eenmalig, zodra iedereen in voice zit.
+                    Laat de opname lopen tijdens <em>beide</em> rondes (niet tussentijds stoppen tenzij nodig).
+                </li>
+                <li>
+                    Speel <strong>ronde 1</strong>. Daarna <strong>Rollen wisselen</strong> voor ronde 2:
+                    de opname van ronde 1 wordt afgerond en geüpload; ronde 2 start automatisch een nieuwe take.
+                    Chat en weergaven wisselen mee na de doorverwijzing.
+                </li>
+                <li>
+                    Speel <strong>ronde 2</strong>. Controleer eventueel de sectie “Audio-opnames”
+                    (3/3 stems na een stop).
+                </li>
+                <li>
+                    <strong>Opname stoppen</strong>, daarna <strong>Spel beëindigen</strong>.
+                    Open daarna opnieuw de toegang voor het volgende paar deelnemers.
+                </li>
             </ol>
+            <p class="workflow-tip">
+                <strong>Tip:</strong> Stop de opname pas als ronde 2 klaar is. Bij “Rollen wisselen”
+                hoef je de opname niet handmatig te herstarten. Bij uploadfouten kan de deelnemer
+                lokaal downloaden; de checklist toont of alle stems binnen zijn.
+            </p>
         </div>
 
         <div class="info-section">
-            <h3>🎟️ Generate Access Tokens</h3>
-            <p>Create unique invitation links for participants (valid for 30 days):</p>
-            <div style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
-                <label for="token-count">Number of tokens:</label>
-                <input type="number" id="token-count" min="1" max="100" value="10" 
-                       style="padding: 8px; width: 80px; border: 1px solid #ddd; border-radius: 4px;">
-                <button id="btn-generate-tokens" class="control-btn btn-secondary btn-open"
-                        style="flex: initial; min-width: 180px;">
-                    Generate &amp; Download
+            <h3>🎟️ Toegangstokens genereren</h3>
+            <p>Maak unieke uitnodigingslinks voor deelnemers (30 dagen geldig):</p>
+            <div class="token-row">
+                <label for="token-count">Aantal tokens:</label>
+                <input type="number" id="token-count" min="1" max="100" value="10">
+                <button id="btn-generate-tokens" class="control-btn btn-tokens" type="button">
+                    Genereren &amp; downloaden
                 </button>
             </div>
-            <small style="color: #666; margin-top: 10px; display: block;">
-                Tokens are single-use and include a unique join URL. Download as CSV for distribution.
+            <small style="margin-top: 10px; display: block;">
+                Tokens zijn eenmalig te gebruiken en bevatten een unieke join-URL. Download als CSV om te verspreiden.
             </small>
         </div>
         {% endif %}
 
         <div class="info-section" id="participant-section" style="display: none;">
-            <h3>👥 Participants</h3>
+            <h3>👥 Deelnemers</h3>
             <div class="participant-info" id="participant-info"></div>
         </div>
 
         <div class="info-section" id="game-links-section" style="display: none;">
-            <h3>🎯 Game Links</h3>
+            <h3>🎯 Spellinks</h3>
             <div id="game-links"></div>
         </div>
 
         <div class="info-section" id="audio-stems-section" style="display: none;">
-            <h3>🎤 Audio stems (last take)</h3>
+            <h3>🎤 Audio-opnames (laatste take)</h3>
             <p class="step-note" style="margin-top: 0;">
-                Informational only — swap/end are not blocked. Each browser uploads its own mic after stop.
+                Alleen ter info — wisselen/beëindigen wordt niet geblokkeerd. Elke browser uploadt de eigen microfoon na stop.
             </p>
             <div id="audio-stems-status" style="font-family: ui-monospace, monospace; font-size: 0.95em;"></div>
         </div>
 
         <div class="footer">
-            <p>You are logged in as <strong>{{ 'Auditor (read-only)' if staff_role == 'auditor' else 'Moderator' }}</strong>.</p>
+            <p>Je bent ingelogd als <strong>{{ 'Auditor (alleen-lezen)' if staff_role == 'auditor' else 'Moderator' }}</strong>.</p>
             <form action="/logout" method="get" style="display: inline;">
-                <button type="submit">🔒 Logout</button>
+                <button type="submit">🔒 Uitloggen</button>
             </form>
         </div>
     </div>
@@ -326,6 +556,42 @@
         const staffRole = {{ staff_role|tojson }};
         let currentState = null;
         let currentGameId = null;
+        let feedbackTimer = null;
+
+        function showFeedback(message, kind) {
+            const el = document.getElementById('action-feedback');
+            if (!el) return;
+            if (!message) {
+                el.hidden = true;
+                el.textContent = '';
+                el.className = 'action-feedback';
+                return;
+            }
+            el.hidden = false;
+            el.textContent = message;
+            el.className = 'action-feedback is-' + (kind || 'info');
+            if (feedbackTimer) clearTimeout(feedbackTimer);
+            feedbackTimer = setTimeout(() => {
+                el.hidden = true;
+                el.textContent = '';
+                el.className = 'action-feedback';
+            }, 5000);
+        }
+
+        const STATE_LABELS = {
+            CLOSED: 'GESLOTEN',
+            OPEN: 'OPEN',
+            READY: 'KLAAR',
+            IN_PROGRESS: 'BEZIG',
+            ENDED: 'BEEINDIGD',
+            NO_SESSION: 'GEEN SESSIE',
+        };
+
+        const ROLE_LABELS = {
+            player1: 'speler 1',
+            player2: 'speler 2',
+            moderator: 'moderator',
+        };
 
         async function updateStatus() {
             try {
@@ -334,10 +600,10 @@
 
                 if (data.status === 'no_session') {
                     const noSessionMessage = staffRole === 'auditor'
-                        ? 'No active session to observe. Wait for a moderator to open entry.'
-                        : 'Click "Open Entry" to create a new session';
+                        ? 'Geen actieve sessie om te volgen. Wacht tot een moderator de toegang opent.'
+                        : 'Klik op „Toegang openen” om een nieuwe sessie te starten.';
                     document.getElementById('status-content').innerHTML = `
-                        <div class="state-badge state-CLOSED">NO SESSION</div>
+                        <div class="state-badge state-CLOSED">${STATE_LABELS.NO_SESSION}</div>
                         <p>${noSessionMessage}</p>
                     `;
                     renderAudioStems(null);
@@ -347,24 +613,25 @@
                 } else if (data.status === 'ok') {
                     currentState = data.state;
                     currentGameId = data.game_id;
+                    const stateLabel = STATE_LABELS[data.state] || data.state;
 
                     let statusHtml = `
-                        <div class="state-badge state-${data.state}">${data.state}</div>
-                        <p><strong>Game ID:</strong> ${data.game_id}</p>
+                        <div class="state-badge state-${data.state}">${stateLabel}</div>
+                        <p><strong>Spel-ID:</strong> ${data.game_id}</p>
                     `;
 
                     if (data.state === 'OPEN') {
-                        statusHtml += `<p>✅ Entry is open - ${data.waiting_count}/2 participants waiting</p>`;
+                        statusHtml += `<p>✅ Toegang is open — ${data.waiting_count}/2 deelnemers wachten</p>`;
                     } else if (data.state === 'READY') {
-                        statusHtml += `<p>⏳ 2 participants ready - Click "Start Game" to begin</p>`;
+                        statusHtml += `<p>⏳ 2 deelnemers klaar — klik op „Spel starten”</p>`;
                     } else if (data.state === 'IN_PROGRESS') {
-                        statusHtml += `<p>🎮 Game in progress (Round ${data.round_number || 1})`;
+                        statusHtml += `<p>🎮 Spel bezig (ronde ${data.round_number || 1})`;
                         if (data.recording_active) {
-                            statusHtml += `<span class="recording-badge">⏺ REC</span>`;
+                            statusHtml += `<span class="recording-badge">⏺ OPN</span>`;
                         }
                         statusHtml += `</p>`;
                     } else if (data.state === 'ENDED') {
-                        statusHtml += `<p>🏁 Game ended - Click "Open Entry" to start a new session</p>`;
+                        statusHtml += `<p>🏁 Spel beëindigd — klik op „Toegang openen” voor een nieuwe sessie</p>`;
                     }
 
                     document.getElementById('status-content').innerHTML = statusHtml;
@@ -372,16 +639,16 @@
                     if (data.state === 'READY' || data.state === 'IN_PROGRESS') {
                         const participantSection = document.getElementById('participant-section');
                         participantSection.style.display = 'block';
-                        
+
                         const participantInfo = document.getElementById('participant-info');
                         participantInfo.innerHTML = `
                             <div class="participant-card">
-                                <strong>🎭 Player 1 (Secret Card)</strong><br>
-                                <small>ID: ${data.player1_id ? data.player1_id.substring(0, 8) + '...' : 'N/A'}</small>
+                                <strong>🎭 Speler 1 (geheime kaart)</strong><br>
+                                <small>ID: ${data.player1_id ? data.player1_id.substring(0, 8) + '…' : 'n.v.t.'}</small>
                             </div>
                             <div class="participant-card">
-                                <strong>🔍 Player 2 (Guesser)</strong><br>
-                                <small>ID: ${data.player2_id ? data.player2_id.substring(0, 8) + '...' : 'N/A'}</small>
+                                <strong>🔍 Speler 2 (raden)</strong><br>
+                                <small>ID: ${data.player2_id ? data.player2_id.substring(0, 8) + '…' : 'n.v.t.'}</small>
                             </div>
                         `;
                     } else {
@@ -391,12 +658,14 @@
                     if (data.state === 'IN_PROGRESS' && data.player1_id && data.player2_id) {
                         const gameLinksSection = document.getElementById('game-links-section');
                         gameLinksSection.style.display = 'block';
-                        
+
                         const gameLinks = document.getElementById('game-links');
-                        const observerLabel = staffRole === 'auditor' ? '👁️ Open Observer View' : '🖥️ Moderator Observer View';
+                        const observerLabel = staffRole === 'auditor'
+                            ? '👁️ Open observatieweergave'
+                            : '🖥️ Moderatorweergave openen';
                         const playerLinks = staffRole === 'auditor' ? '' : `
-                            <p><a href="/player1?game_id=${data.game_id}&participant_id=${data.player1_id}" target="_blank" class="link-btn">🎭 Player 1 View</a></p>
-                            <p><a href="/player2?game_id=${data.game_id}&participant_id=${data.player2_id}" target="_blank" class="link-btn">🔍 Player 2 View</a></p>
+                            <p><a href="/player1?game_id=${data.game_id}&participant_id=${data.player1_id}" target="_blank" class="link-btn">🎭 Weergave speler 1</a></p>
+                            <p><a href="/player2?game_id=${data.game_id}&participant_id=${data.player2_id}" target="_blank" class="link-btn">🔍 Weergave speler 2</a></p>
                         `;
                         gameLinks.innerHTML = `
                             ${playerLinks}
@@ -413,7 +682,7 @@
                     }
                 }
             } catch (err) {
-                console.error('Status update failed:', err);
+                console.error('Statusupdate mislukt:', err);
             }
         }
 
@@ -433,13 +702,14 @@
             const roles = ['player1', 'player2', 'moderator'];
             const parts = roles.map((role) => {
                 const stem = stems[role];
+                const label = ROLE_LABELS[role] || role;
                 if (stem && stem.status === 'ok') {
                     const kb = stem.byte_size != null
                         ? ` (${Math.round(stem.byte_size / 1024)} KB)`
                         : '';
-                    return `<span style="color:#2e7d32;margin-right:12px;">${role} ✓${kb}</span>`;
+                    return `<span class="stem-ok">${label} ✓${kb}</span>`;
                 }
-                return `<span style="color:#e65100;margin-right:12px;">${role} …</span>`;
+                return `<span class="stem-pending">${label} …</span>`;
             });
             const done = roles.filter((r) => stems[r] && stems[r].status === 'ok').length;
             el.innerHTML = `
@@ -469,7 +739,9 @@
             }
             if (state === 'READY') {
                 btnStart.disabled = !MicCheck.isMicReady();
-                btnStart.title = MicCheck.isMicReady() ? '' : 'Check your microphone first';
+                btnStart.title = MicCheck.isMicReady()
+                    ? ''
+                    : 'Controleer eerst je microfoon';
             }
             if (statusData?.can_swap_roles === true) {
                 btnSwap.disabled = false;
@@ -492,31 +764,33 @@
                 const res = await fetch('/moderator/control/open', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Toegang geopend.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Failed to open entry');
+                    showFeedback('Toegang openen mislukt.', 'error');
                 }
             } catch (err) {
-                alert('Error: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
         document.getElementById('btn-start').onclick = async () => {
             if (!MicCheck.isMicReady()) {
-                alert('Check your microphone before starting the game.');
+                showFeedback('Controleer eerst je microfoon voordat je het spel start.', 'info');
                 return;
             }
             try {
                 const res = await fetch('/moderator/control/start', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Spel gestart.', 'ok');
                     updateStatus();
                     window.open(`/moderator?game_id=${data.game_id}`, '_blank');
                 } else {
-                    alert('Failed to start game: ' + (data.message || 'Unknown error'));
+                    showFeedback('Spel starten mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Error: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -525,13 +799,13 @@
                 const res = await fetch('/moderator/control/swap_roles', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Rollen gewisseld — ronde 2 gestart.', 'ok');
                     updateStatus();
-                    alert('✅ Roles swapped. Round 2 started.');
                 } else {
-                    alert('Failed to swap roles: ' + (data.message || 'Unknown error'));
+                    showFeedback('Rollen wisselen mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Error: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -540,12 +814,13 @@
                 const res = await fetch('/moderator/control/recording/start', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Opname gestart.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Failed to start recording: ' + (data.message || 'Unknown error'));
+                    showFeedback('Opname starten mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Error: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -554,12 +829,13 @@
                 const res = await fetch('/moderator/control/recording/stop', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Opname gestopt.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Failed to stop recording: ' + (data.message || 'Unknown error'));
+                    showFeedback('Opname stoppen mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Error: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -568,20 +844,21 @@
                 const res = await fetch('/moderator/control/end', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Spel beëindigd.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Failed to end game');
+                    showFeedback('Spel beëindigen mislukt.', 'error');
                 }
             } catch (err) {
-                alert('Error: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
         document.getElementById('btn-generate-tokens').onclick = async () => {
-            const count = parseInt(document.getElementById('token-count').value);
+            const count = parseInt(document.getElementById('token-count').value, 10);
 
             if (!count || count < 1 || count > 100) {
-                alert('Please enter a valid number of tokens (1-100)');
+                showFeedback('Voer een geldig aantal tokens in (1–100).', 'info');
                 return;
             }
 
@@ -599,19 +876,19 @@
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `access_tokens_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+                    a.download = `toegangstokens_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     window.URL.revokeObjectURL(url);
 
-                    alert(`✅ Generated ${count} tokens! Check your downloads.`);
+                    showFeedback(`${count} tokens gedownload.`, 'ok');
                 } else {
                     const data = await res.json();
-                    alert('Failed to generate tokens: ' + (data.message || 'Unknown error'));
+                    showFeedback('Tokens genereren mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Error: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -620,14 +897,14 @@
             statusEl: document.getElementById('mic-check-status'),
             levelEl: document.getElementById('mic-level-bar'),
             messages: {
-                idle: 'Not checked yet',
-                checking: 'Requesting microphone access…',
-                speak: 'Speak now — the bar should move',
-                ok: 'Microphone ready',
-                blocked: 'Microphone blocked. Allow access in browser settings.',
-                error: 'Microphone check failed. Try again.',
+                idle: 'Nog niet gecontroleerd',
+                checking: 'Microfoontoegang aanvragen…',
+                speak: 'Spreek nu — de balk moet bewegen',
+                ok: 'Microfoon is klaar',
+                blocked: 'Microfoon geblokkeerd. Sta toegang toe in de browserinstellingen.',
+                error: 'Microfooncontrole mislukt. Probeer opnieuw.',
             },
-            successLabel: 'Check again',
+            successLabel: 'Opnieuw controleren',
             onReady: updateStatus,
         });
         document.addEventListener('gw-mic-ready', updateStatus);
