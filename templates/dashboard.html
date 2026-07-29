@@ -52,6 +52,30 @@
         .state-IN_PROGRESS { background: #dbeafe; color: #1d4ed8; }
         .state-ENDED { background: #f3e8ff; color: #7e22ce; }
 
+        .action-feedback {
+            margin: 12px 0 0;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 0.92em;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+        .action-feedback.is-ok {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+        .action-feedback.is-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        .action-feedback.is-info {
+            background: #e0f2fe;
+            color: #075985;
+            border: 1px solid #7dd3fc;
+        }
+
         /* All session controls on one row */
         .control-buttons {
             display: flex;
@@ -415,6 +439,7 @@
         <div class="state-display" id="state-display">
             <h2>Huidige status <div class="spinner"></div></h2>
             <div id="status-content">Laden…</div>
+            <p id="action-feedback" class="action-feedback" role="status" aria-live="polite" hidden></p>
         </div>
 
         {% if staff_role != 'auditor' %}
@@ -531,6 +556,27 @@
         const staffRole = {{ staff_role|tojson }};
         let currentState = null;
         let currentGameId = null;
+        let feedbackTimer = null;
+
+        function showFeedback(message, kind) {
+            const el = document.getElementById('action-feedback');
+            if (!el) return;
+            if (!message) {
+                el.hidden = true;
+                el.textContent = '';
+                el.className = 'action-feedback';
+                return;
+            }
+            el.hidden = false;
+            el.textContent = message;
+            el.className = 'action-feedback is-' + (kind || 'info');
+            if (feedbackTimer) clearTimeout(feedbackTimer);
+            feedbackTimer = setTimeout(() => {
+                el.hidden = true;
+                el.textContent = '';
+                el.className = 'action-feedback';
+            }, 5000);
+        }
 
         const STATE_LABELS = {
             CLOSED: 'GESLOTEN',
@@ -718,31 +764,33 @@
                 const res = await fetch('/moderator/control/open', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Toegang geopend.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Toegang openen mislukt');
+                    showFeedback('Toegang openen mislukt.', 'error');
                 }
             } catch (err) {
-                alert('Fout: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
         document.getElementById('btn-start').onclick = async () => {
             if (!MicCheck.isMicReady()) {
-                alert('Controleer je microfoon voordat je het spel start.');
+                showFeedback('Controleer eerst je microfoon voordat je het spel start.', 'info');
                 return;
             }
             try {
                 const res = await fetch('/moderator/control/start', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Spel gestart.', 'ok');
                     updateStatus();
                     window.open(`/moderator?game_id=${data.game_id}`, '_blank');
                 } else {
-                    alert('Spel starten mislukt: ' + (data.message || 'Onbekende fout'));
+                    showFeedback('Spel starten mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Fout: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -751,13 +799,13 @@
                 const res = await fetch('/moderator/control/swap_roles', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Rollen gewisseld — ronde 2 gestart.', 'ok');
                     updateStatus();
-                    alert('✅ Rollen gewisseld. Ronde 2 is gestart.');
                 } else {
-                    alert('Rollen wisselen mislukt: ' + (data.message || 'Onbekende fout'));
+                    showFeedback('Rollen wisselen mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Fout: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -766,12 +814,13 @@
                 const res = await fetch('/moderator/control/recording/start', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Opname gestart.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Opname starten mislukt: ' + (data.message || 'Onbekende fout'));
+                    showFeedback('Opname starten mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Fout: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -780,12 +829,13 @@
                 const res = await fetch('/moderator/control/recording/stop', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Opname gestopt.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Opname stoppen mislukt: ' + (data.message || 'Onbekende fout'));
+                    showFeedback('Opname stoppen mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Fout: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -794,12 +844,13 @@
                 const res = await fetch('/moderator/control/end', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'ok') {
+                    showFeedback('Spel beëindigd.', 'ok');
                     updateStatus();
                 } else {
-                    alert('Spel beëindigen mislukt');
+                    showFeedback('Spel beëindigen mislukt.', 'error');
                 }
             } catch (err) {
-                alert('Fout: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
@@ -807,7 +858,7 @@
             const count = parseInt(document.getElementById('token-count').value, 10);
 
             if (!count || count < 1 || count > 100) {
-                alert('Voer een geldig aantal tokens in (1–100)');
+                showFeedback('Voer een geldig aantal tokens in (1–100).', 'info');
                 return;
             }
 
@@ -831,13 +882,13 @@
                     document.body.removeChild(a);
                     window.URL.revokeObjectURL(url);
 
-                    alert(`✅ ${count} tokens gegenereerd. Controleer je downloads.`);
+                    showFeedback(`${count} tokens gedownload.`, 'ok');
                 } else {
                     const data = await res.json();
-                    alert('Tokens genereren mislukt: ' + (data.message || 'Onbekende fout'));
+                    showFeedback('Tokens genereren mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
-                alert('Fout: ' + err.message);
+                showFeedback('Fout: ' + err.message, 'error');
             }
         };
 
