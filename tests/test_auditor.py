@@ -88,7 +88,7 @@ class TestAuditorAuth:
         self.auditor_login(client)
         res = client.get(f"/moderator?game_id={game_id}")
         assert res.status_code == 200
-        assert b"Observer View" in res.data
+        assert b"Observatieweergave" in res.data
 
     def test_auditor_cannot_view_other_game_id(self, client, reset_globals):
         self.moderator_login(client)
