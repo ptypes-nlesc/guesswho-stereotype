@@ -621,9 +621,13 @@
                     `;
 
                     if (data.state === 'OPEN') {
-                        statusHtml += `<p>✅ Toegang is open — ${data.waiting_count}/2 deelnemers wachten</p>`;
+                        const waiting = data.waiting_count || 0;
+                        statusHtml += `<p>✅ Toegang is open — <strong>${waiting}/2</strong> deelnemers in de wachtruimte</p>`;
+                        if (waiting < 2) {
+                            statusHtml += `<p style="color:#64748b;margin-top:6px;">Wacht tot beide deelnemers via hun tokenlink op „Meedoen” klikken (microfoon eerst controleren). „Spel starten” wordt pas actief bij 2/2.</p>`;
+                        }
                     } else if (data.state === 'READY') {
-                        statusHtml += `<p>⏳ 2 deelnemers klaar — klik op „Spel starten”</p>`;
+                        statusHtml += `<p>⏳ 2 deelnemers klaar — controleer je microfoon en klik op „Spel starten”</p>`;
                     } else if (data.state === 'IN_PROGRESS') {
                         statusHtml += `<p>🎮 Spel bezig (ronde ${data.round_number || 1})`;
                         if (data.recording_active) {
