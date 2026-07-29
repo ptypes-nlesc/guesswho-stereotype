@@ -1129,8 +1129,17 @@ def dashboard():
     """Staff dashboard."""
     if not is_staff():
         return redirect(url_for("index"))
+    # Keep moderator bound to the live session across dashboard reloads.
+    # Clearing this on every visit forced a new game_id on the next "Open"
+    # and left participants unable to join the session the UI still showed.
     if is_moderator():
-        session['moderator_session_game_id'] = None
+        current = get_current_session_game_id()
+        game_state = get_game_state(current) if current else None
+        if game_state and game_state.get("state") in ("OPEN", "READY", "IN_PROGRESS"):
+            session["moderator_session_game_id"] = current
+        else:
+            # Ended/closed sessions should not stick as "current" on the dashboard.
+            session["moderator_session_game_id"] = None
     return render_template("dashboard.html", staff_role=get_session_role())
 
 
@@ -1473,75 +1482,95 @@ def join_enter():
     if token_row['used_at']:  # used_at is not NULL
         # Token already used - reject with error
         return jsonify({"status": "error", "message": "This token has already been used and cannot be reused"}), 400
-    else:
-        # Token not yet used - generate participant_id and mark token as used
-        participant_id = str(uuid.uuid4())
-        
-        with get_db_conn() as conn:
-            c = conn.cursor()
-            # Insert participant first (foreign key constraint)
-            c.execute(
-                "INSERT INTO participants (id, created_at) VALUES (%s, %s)",
-                (participant_id, datetime.datetime.now().isoformat())
-            )
-            # Then update token with participant_id
-            c.execute(
-                "UPDATE access_tokens SET used_at = %s, participant_id = %s WHERE token = %s",
-                (datetime.datetime.now().isoformat(), participant_id, token)
-            )
-            # Context manager auto-commits
-    
+
+    # Validate session/entry BEFORE consuming the one-time token.
     current_game_id = get_current_session_game_id()
     if not current_game_id or not get_game_state(current_game_id):
         return jsonify({"status": "error", "message": "No active session"}), 400
-    
+
     game_state = get_game_state(current_game_id)
-    
+
     if game_state['state'] != 'OPEN':
         return jsonify({"status": "error", "message": "Entry is not open"}), 400
-    
-    # Add to waiting list if not already there
-    if 'waiting_participants' not in game_state:
+
+    if 'waiting_participants' not in game_state or game_state['waiting_participants'] is None:
         game_state['waiting_participants'] = []
-    
+
+    # Redis / older state may store unexpected shapes; normalise to list of dicts.
+    waiting = game_state['waiting_participants']
+    if not isinstance(waiting, list):
+        waiting = []
+        game_state['waiting_participants'] = waiting
+
+    if len(waiting) >= 2:
+        return jsonify({"status": "error", "message": "Capacity reached"}), 400
+
+    # Token not yet used - generate participant_id and mark token as used
+    participant_id = str(uuid.uuid4())
+
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        # Insert participant first (foreign key constraint)
+        c.execute(
+            "INSERT INTO participants (id, created_at) VALUES (%s, %s)",
+            (participant_id, datetime.datetime.now().isoformat())
+        )
+        # Then update token with participant_id
+        c.execute(
+            "UPDATE access_tokens SET used_at = %s, participant_id = %s WHERE token = %s",
+            (datetime.datetime.now().isoformat(), participant_id, token)
+        )
+        # Context manager auto-commits
+
+    # Re-load state after DB work in case another joiner raced us.
+    game_state = get_game_state(current_game_id) or game_state
+    if game_state.get('state') != 'OPEN':
+        return jsonify({"status": "error", "message": "Entry is not open"}), 400
+    if 'waiting_participants' not in game_state or not isinstance(game_state['waiting_participants'], list):
+        game_state['waiting_participants'] = []
+
     # Check if participant is already in waiting list
-    if any(p['id'] == participant_id for p in game_state['waiting_participants']):
+    if any(
+        (p.get('id') if isinstance(p, dict) else p) == participant_id
+        for p in game_state['waiting_participants']
+    ):
         return jsonify({
             "status": "ok",
             "participant_id": participant_id,
-            "waiting_count": len(game_state['waiting_participants'])
+            "waiting_count": len(game_state['waiting_participants']),
+            "game_id": current_game_id,
         })
-    
+
     if len(game_state['waiting_participants']) >= 2:
         return jsonify({"status": "error", "message": "Capacity reached"}), 400
-    
+
     game_state['waiting_participants'].append({
         'id': participant_id,
         'timestamp': datetime.datetime.now().isoformat()
     })
-    
+
     print(f"Participant {participant_id} entered waiting room. Count: {len(game_state['waiting_participants'])}/2")
-    
+
     # Auto-close if capacity reached
     if len(game_state['waiting_participants']) == 2:
         game_state['state'] = 'READY'
         # Assign roles
         game_state['player1_id'] = game_state['waiting_participants'][0]['id']
         game_state['player2_id'] = game_state['waiting_participants'][1]['id']
-        
+
         # Save updated state to Redis
         set_game_state(current_game_id, game_state)
-        
+
         # Bind roles in database
         set_participant_binding(current_game_id, game_state['player1_id'], 'player1', round_number=1)
         set_participant_binding(current_game_id, game_state['player2_id'], 'player2', round_number=1)
-        
+
         record_event("system", "entry_closed", current_game_id, text="Capacity reached (2/2)")
         print(f"Game {current_game_id} ready with 2 participants")
     else:
         # Save updated state to Redis
         set_game_state(current_game_id, game_state)
-    
+
     return jsonify({
         "status": "ok",
         "participant_id": participant_id,
