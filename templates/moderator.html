@@ -88,15 +88,14 @@
         document.getElementById("game-id-display").textContent = gameId;
 
         const ROLE_LABELS = {
-            player1: 'speler 1',
-            player2: 'speler 2',
+            player1: 'player 1',
+            player2: 'player 2',
             moderator: 'moderator',
             auditor: 'auditor',
-            System: 'Systeem',
         };
 
         function roleLabel(role) {
-            if (!role) return 'Systeem';
+            if (!role) return 'systeem';
             return ROLE_LABELS[role] || role;
         }
 

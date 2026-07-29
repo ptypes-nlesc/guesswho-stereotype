@@ -72,6 +72,15 @@
 
         const transcriptDiv = document.getElementById('transcript');
         const chatInput = document.getElementById('chat-input');
+        const ROLE_LABELS = {
+            player1: 'player 1',
+            player2: 'player 2',
+            moderator: 'moderator',
+        };
+        function roleLabel(role) {
+            if (!role) return 'systeem';
+            return ROLE_LABELS[role] || role;
+        }
 
         // Track seen joins by role to avoid duplicate join messages in UI
         const seenJoins = new Set();
@@ -119,7 +128,10 @@
                         const key = `${entry.role}`;
                         if (!seenJoins.has(key)) {
                             seenJoins.add(key);
-                            appendMessage(`<em>${entry.role || 'System'} joined game ${entry.game_id}</em>`, 'color:gray;');
+                            appendMessage(
+                                `<em>${roleLabel(entry.role)} is toegetreden tot spel ${entry.game_id}</em>`,
+                                'color:gray;'
+                            );
                         }
                     } else if (entry.action === 'round_complete') {
                         appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
@@ -259,7 +271,10 @@
             } else {
                 return;
             }
-            appendMessage(`<em>${data.role || 'System'} joined game ${data.game_id}</em>`, 'color:gray;');
+            appendMessage(
+                `<em>${roleLabel(data.role)} is toegetreden tot spel ${data.game_id}</em>`,
+                'color:gray;'
+            );
         });
 
         socket.on('round_complete', data => {
