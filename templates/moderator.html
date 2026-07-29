@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 
 <head>
     <meta charset="UTF-8">
-    <title>Moderator View – GuessWho Stereotype</title>
+    <title>{% if read_only %}Observatieweergave{% else %}Moderatorweergave{% endif %} – GuessWho Stereotype</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
@@ -19,31 +19,31 @@
 
     <main class="moderator-main">
         <div class="header-bar">
-            <h2>{% if read_only %}Observer View{% else %}Moderator View{% endif %}</h2>
-            <span class="game-info">Game ID: <span id="game-id-display">{{ game_id }}</span></span>
+            <h2>{% if read_only %}Observatieweergave{% else %}Moderatorweergave{% endif %}</h2>
+            <span class="game-info">Spel-ID: <span id="game-id-display">{{ game_id }}</span></span>
         </div>
 
         {% if read_only %}
         <p style="text-align:center; color:#856404; background:#fff8e1; padding:10px; border-radius:6px; max-width:720px; margin:0 auto 16px;">
-            Read-only auditor mode — chat and voice are disabled.
+            Alleen-lezen (auditor) — chat en spraak zijn uitgeschakeld.
         </p>
         {% endif %}
 
         <div class="player-panels">
             <div class="player-box">
-                <h3>Player 1 (Secret Card)</h3>
+                <h3>Speler 1 (geheime kaart)</h3>
                 {% if secret_card is defined %}
                 <div class="secret-card">
                     <img src="{{ url_for('static', filename='cards/' + secret_card.id|string + '.png') }}" alt="{{ secret_card.name }}"
                         class="secret-card-image">
                 </div>
                 {% else %}
-                <p style="color: #999;">Secret card not available.</p>
+                <p style="color: #999;">Geheime kaart niet beschikbaar.</p>
                 {% endif %}
             </div>
 
             <div class="player-box">
-                <h3>Player 2 (Guesser Grid)</h3>
+                <h3>Speler 2 (raden)</h3>
                 <div id="card-grid">
                     {% for card_item in cards|default([]) %}
                     <div class="card{% if card_item.id in (eliminated|default([])) %} eliminated{% endif %}" id="card{{ card_item.id }}">
@@ -60,8 +60,8 @@
 
             {% if not read_only %}
             <div class="chat-bar">
-                <input type="text" id="chat-input" placeholder="Send a message to all participants">
-                <button id="send-chat">Send</button>
+                <input type="text" id="chat-input" placeholder="Stuur een bericht naar alle deelnemers">
+                <button id="send-chat">Versturen</button>
             </div>
             {% endif %}
         </div>
@@ -69,14 +69,14 @@
         {% if not read_only %}
         <div class="voice-controls" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
             <button id="voice-mute" type="button" disabled>Mute</button>
-            <span id="voice-status" style="color: #555;">connecting voice…</span>
+            <span id="voice-status" style="color: #555;">spraak verbinden…</span>
             <span id="recording-status"></span>
         </div>
         {% endif %}
 
         <footer>
-            <p>Moderator controls and monitoring panel – GuessWho Stereotype</p>
-            <p><a href="{{ url_for('dashboard') }}" class="link-btn">⬅ Back to Dashboard</a></p>
+            <p>Moderatorbediening en monitorpaneel – GuessWho Stereotype</p>
+            <p><a href="{{ url_for('dashboard') }}" class="link-btn">⬅ Terug naar dashboard</a></p>
         </footer>
     </main>
 
@@ -86,6 +86,18 @@
         const readOnly = {{ read_only|default(false)|tojson }};
         const socketRole = readOnly ? "auditor" : "moderator";
         document.getElementById("game-id-display").textContent = gameId;
+
+        const ROLE_LABELS = {
+            player1: 'player 1',
+            player2: 'player 2',
+            moderator: 'moderator',
+            auditor: 'auditor',
+        };
+
+        function roleLabel(role) {
+            if (!role) return 'systeem';
+            return ROLE_LABELS[role] || role;
+        }
 
         // --- Socket setup ---------------------------------------------
         const socket = io();
@@ -122,23 +134,26 @@
             .then(arr => {
                 arr.forEach(entry => {
                     if (entry.action === 'chat' && entry.text) {
-                        appendMessage(`<b>${entry.role}:</b> ${entry.text}`);
+                        appendMessage(`<b>${roleLabel(entry.role)}:</b> ${entry.text}`);
                     } else if (entry.action === 'join') {
                         const key = `${entry.role}`;
                         if (!seenJoins.has(key)) {
                             seenJoins.add(key);
-                            appendMessage(`<em>${entry.role || 'System'} joined game ${entry.game_id}</em>`, 'color:gray;');
+                            appendMessage(
+                                `<em>${roleLabel(entry.role)} is toegetreden tot spel ${entry.game_id}</em>`,
+                                'color:gray;'
+                            );
                         }
                     } else if (entry.action === 'eliminate' && entry.card) {
-                        const label = entry.card_name || `Card ${entry.card}`;
-                        appendMessage(`<em>Eliminated card: ${label}</em>`, 'color:red;');
+                        const label = entry.card_name || `Kaart ${entry.card}`;
+                        appendMessage(`<em>Kaart geëlimineerd: ${label}</em>`, 'color:red;');
                     } else if (entry.action === 'round_complete') {
                         appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
                     }
                 });
                 checkEndOfGame();
             })
-            .catch(err => console.error('Failed to load transcript:', err));
+            .catch(err => console.error('Transcript laden mislukt:', err));
         
         // Check game status
         async function checkGameStatus() {
@@ -173,11 +188,9 @@
                         endNotification.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff3cd; border: 2px solid #ffc107; padding: 30px; border-radius: 8px; text-align: center; font-size: 1.2em; font-weight: bold; color: #856404; z-index: 9999; width: 90%; max-width: 500px;';
                         
                         if (data.state === 'CLOSED' && data.message) {
-                            // Session reset - show "no longer active" message
-                            endNotification.innerHTML = '🔒 This game session is no longer active.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = '🔒 Deze spelsessie is niet meer actief.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">Je kunt dit venster sluiten.</small>';
                         } else {
-                            // Game ended normally
-                            endNotification.innerHTML = 'Game has ended.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">You can close this window.</small>';
+                            endNotification.innerHTML = 'Het spel is afgelopen.<br><small style="font-size: 0.8em; display: block; margin-top: 10px;">Je kunt dit venster sluiten.</small>';
                         }
                         
                         const main = document.querySelector('main');
@@ -195,7 +208,7 @@
                     consecutiveEndStateChecks = 0;
                 }
             } catch (err) {
-                console.error('Game status check failed:', err);
+                console.error('Statuscontrole mislukt:', err);
             }
         }
         
@@ -252,7 +265,7 @@
         }
 
         // --- Socket events --------------------------------------------
-        socket.on("chat", data => appendMessage(`<b>${data.role}:</b> ${data.text}`));
+        socket.on("chat", data => appendMessage(`<b>${roleLabel(data.role)}:</b> ${data.text}`));
         socket.on("system", data => {
             if (data.action === "join") {
                 const key = `${data.role}`;
@@ -261,11 +274,14 @@
             } else {
                 return;
             }
-            appendMessage(`<em>${data.role || "System"} joined game ${data.game_id}</em>`, "color:gray;");
+            appendMessage(
+                `<em>${roleLabel(data.role)} is toegetreden tot spel ${data.game_id}</em>`,
+                "color:gray;"
+            );
         });
         socket.on("eliminate", data => {
-            const label = data.card_name || `Card ${data.card}`;
-            appendMessage(`<em>Eliminated card: ${label}</em>`, "color:red;");
+            const label = data.card_name || `Kaart ${data.card}`;
+            appendMessage(`<em>Kaart geëlimineerd: ${label}</em>`, "color:red;");
             const cardEl = document.getElementById(`card${data.card}`);
             if (cardEl) cardEl.classList.add("eliminated");
             setTimeout(checkEndOfGame, 100);
@@ -286,6 +302,7 @@
                 role: "moderator",
                 muteButtonEl: document.getElementById("voice-mute"),
                 statusEl: document.getElementById("voice-status"),
+                muteLabels: { active: "Mute", muted: "Unmute", pending: "Mute" },
                 autoJoin: true,
             });
 
@@ -304,7 +321,7 @@
         socket.on("roles_swapped", async data => {
             console.log("Roles swapped, refreshing moderator view");
             appendMessage(
-                `<em style="color: #0066cc;">⚠️ Roles swapped — uploading audio, then refreshing…</em>`,
+                `<em style="color: #0066cc;">⚠️ Rollen gewisseld — audio uploaden, daarna vernieuwen…</em>`,
                 "color: #0066cc; font-weight: bold;"
             );
             if (sessionRecorder && typeof sessionRecorder.prepareForNavigation === "function") {
