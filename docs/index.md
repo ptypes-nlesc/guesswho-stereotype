@@ -1,47 +1,35 @@
-# GuessWho Stereotype Documentation
+# Xposed
 
-A lightweight research game for studying stereotype patterns through role-based gameplay.
+Flask + Socket.IO research game for studying stereotype talk in a two-player deduction session.
 
-## What this project is
+A **moderator** opens a session and issues join tokens. Two **participants** play as secret-card holder and guesser, then swap roles. Voice is a three-way WebRTC mesh. Each browser records its own microphone and uploads the stem when the moderator stops (or roles swap).
 
-GuessWho Stereotype (Xposed) is a Flask + Socket.IO application with:
+## Docs
 
-- Moderator-controlled sessions
-- Token-based participant access
-- Two-player role flow (player1 and player2)
-- Live chat and optional voice signaling
-- Full audit-friendly logging into MySQL
+- [User guide](USAGE_GUIDE.md) — session workflow
+- [API](api.md) — HTTP and Socket.IO
+- [Deploy](deploy.md) — runtime, env, coturn, audio files
+- [Roadmap](ROADMAP.md) — status and next work
 
-## Documentation map
+## Architecture
 
-- User Guide: moderator and participant workflows
-- API Reference: endpoints, sockets, and key payloads
-- Roadmap: implementation status and future phases
+| Layer | Role |
+|------|------|
+| Apache (or nginx) | TLS reverse proxy |
+| Gunicorn (1 gevent worker) | Flask, Socket.IO |
+| Redis | Live game and voice state |
+| MariaDB | Games, chat, events, tokens, `audio_events` |
+| coturn | TURN for WebRTC when peers cannot connect directly |
 
-## Architecture snapshot
+Session flow: `CLOSED` → `OPEN` → `READY` → `IN_PROGRESS` → `ENDED`.
 
-- Backend: Flask + Flask-SocketIO
-- Runtime state: Redis (with in-memory fallback)
-- Persistence: MySQL (games, rounds, chat, events, eliminations, tokens)
-- Realtime: Socket.IO and WebRTC signaling
+## Local production-style run
 
-## Run with Gunicorn
-
-For a production-style local run, start the app through the Eventlet-enabled WSGI entrypoint:
+From the project root, with dependencies from `requirements.txt`:
 
 ```bash
-gunicorn --worker-class eventlet -w 1 --bind 127.0.0.1:5000 --log-level info wsgi:app
+gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker \
+  -w 1 --bind 127.0.0.1:5000 --log-level info wsgi:app
 ```
 
-Notes:
-
-- Run this from the project root after installing dependencies from `requirements.txt`.
-- `--worker-class eventlet` is required for WebSocket traffic to work correctly with Flask-SocketIO.
-- `--bind 127.0.0.1:5000` restricts the server to localhost; use a reverse proxy (Apache/nginx) to expose it externally.
-- Open `http://127.0.0.1:5000/` after the server starts.
-
-## Notes
-
-- Token links are one-time use.
-- Session state progression: CLOSED -> OPEN -> READY -> IN_PROGRESS -> ENDED.
-- Moderator is authenticated by session, not a participant identity.
+Bind stays on localhost; put a reverse proxy in front for HTTPS. Open `http://127.0.0.1:5000/`.

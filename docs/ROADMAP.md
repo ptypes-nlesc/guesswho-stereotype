@@ -1,125 +1,58 @@
-# Project Roadmap – Xposed
+# Roadmap
 
-Development milestones for the *Xposed* web application (Guess Who–style research game with live voice).
-
-**Last updated:** July 2026
-
----
-
-## Status at a glance
+**Last updated:** August 2026
 
 | Phase | Status |
 |-------|--------|
 | 1 – Core MVP | Done |
 | 2 – First game playable | Done |
-| 3 – Live voice + recording | **In progress** — capture + upload done; **next: staging storage smoke test** |
-| 4 – Deployment & security | Mostly done (hardening ongoing) |
+| 3 – Live voice + recording | Done |
+| 4 – Deployment & security | Mostly done |
 | 5 – Research features | Future |
 
----
+## Phase 1 – Core
 
-## Phase 1 – Core Functionality (MVP)
+- [x] Flask APIs, player and moderator UI
+- [x] Socket.IO
+- [x] Per-session `game_id`
+- [x] Event logging
+- [x] Character cards
 
-- [x] Flask backend with game APIs  
-- [x] Player and moderator interfaces  
-- [x] Socket.IO real-time communication  
-- [x] Unique `game_id` per session  
-- [x] Database logging of in-game events  
-- [x] UI for character cards and interactions  
+## Phase 2 – Playable session
 
----
+- [x] Win / final-guess UI
+- [x] Staff login and moderator dashboard
+- [x] Token-based entry
+- [x] Transcript / CSV export
 
-## Phase 2 – First Game Playable
+## Phase 3 – Voice and recording
 
-- [x] Win condition and final-guess UI  
-- [x] Card layout and responsive design  
-- [x] Index page with staff login  
-- [x] Moderator dashboard  
-- [x] Token-based participant entry  
-- [x] Export of game data (CSV / transcript APIs)  
+Each browser records **its own microphone** (not remote WebRTC audio).
 
----
+- [x] Three-way WebRTC mesh; mic check; mute; stale-peer cleanup
+- [x] coturn TURN (`TURN_SERVER` / `TURN_SECRET`) and public ICE fallback
+- [x] `GET /api/webrtc/ice-servers`
+- [x] Moderator start/stop recording; `recording_start` / `recording_stop`
+- [x] MediaRecorder on player1, player2, moderator
+- [x] `POST /audio/upload`; files under `AUDIO_STORAGE_DIR/{game_id}/`
+- [x] `audio_events` rows; dashboard stem checklist
+- [x] Segment on role swap; wait for own upload before navigation
+- [x] Deploy path and full-session smoke test (writable `AUDIO_STORAGE_DIR`)
 
-## Phase 3 – Live Audio & Moderator-Controlled Recording
+## Phase 4 – Deploy and security
 
-### Live voice (WebRTC mesh) 
+- [x] MariaDB + Redis
+- [x] HTTPS reverse proxy (ProxyFix)
+- [x] Staff passwords from the environment
+- [x] MkDocs + pytest
+- [ ] Stronger input validation
+- [ ] Stronger reconnect recovery (game and voice)
 
-- [x] `audio_events` table in SQL schema  
-- [x] 3-way WebRTC mesh (moderator + player1 + player2)  
-- [x] Socket.IO WebRTC signaling  
-- [x] Mic check / pre-join flow; auto-join voice after mic ready  
-- [x] Stale peer cleanup, voice leave / disconnect handling  
-- [x] Institutional coturn TURN (`TURN_SERVER` / `TURN_SECRET`) + public fallback for local dev  
-- [x] `GET /api/webrtc/ice-servers` for browser ICE config  
+## Phase 5 – Research tooling
 
-### Moderator recording control
-
-- [x] Start/Stop Recording on moderator dashboard  
-- [x] `POST /moderator/control/recording/start` and `…/stop`  
-- [x] Broadcast `recording_start` / `recording_stop` (`recording_id`, `server_ts`)  
-- [x] Recording state in game state / Redis  
-- [x] pytest coverage (`tests/test_recording_control.py`)  
-
-### Recording model (design)
-
-Each browser records **its own microphone only** (not remote WebRTC audio).
-
-### Audio capture — done
-
-Shipped in `feature/media-recorder` (`static/recorder.js` on player1, player2, moderator). Blobs stay in the browser until upload is implemented.
-
-- [x] MediaRecorder on player1 / player2 / moderator (local mic)  
-- [x] Auto-start / stop on `recording_start` / `recording_stop`  
-- [x] Capture `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`  
-- [x] Recording indicator UI; resume after role swap / refresh mid-session  
-- [x] Track cloning so voice mute does not silence research stems  
-- [x] Auto-segment on role swap; resume active take via `/game/status`  
-
-### Upload & storage — in progress
-
-- [x] `POST /audio/upload` (multipart: file + metadata)  
-- [x] Path pattern: `{game_id}/{recording_id}_{role}_{participant_id}.webm`  
-- [x] Env `AUDIO_STORAGE_DIR` (local `data/audio/`; staging e.g. `/data/xposed/shared/audio/`)  
-- [x] Insert `audio_events` with path + start/end + client timestamps  
-- [x] Reject uploads missing required timestamps  
-- [x] Idempotent overwrite per `(game_id, recording_id, role)`  
-- [x] Local success/fail UI; `audio_upload_complete` socket event  
-- [x] Dashboard informational stem checklist (`last_audio_uploads`)  
-- [x] Wait for **own** upload before role-swap navigation / end teardown (option 1 soft gate)  
-- [ ] Staging directory, deploy env, full-session smoke test  
-
----
-
-## Phase 4 – Production Deployment & Security
-
-- [x] Relational DB (MySQL / MariaDB; Redis for live state)  
-- [x] HTTPS (reverse proxy)  
-- [x] Reverse proxy support (Apache in staging; app has ProxyFix)  
-- [x] Staff passwords from environment (`MODERATOR_PASSWORD`, `AUDITOR_PASSWORD`)  
-- [x] Optional Redis auth; reverse-proxy / auditor role features  
-- [x] API / usage documentation (MkDocs)  
-- [x] Basic pytest suite (expand over time)  
-- [ ] Broader input validation and error handling  
-- [ ] Stronger disconnect / reconnection recovery (game + voice)  
-
----
-
-## Phase 5 – Future Features
-
-- [ ] Speech-to-text (e.g. Whisper) on saved stems  
-- [ ] Researcher analytics dashboard  
-- [ ] Export analysis-ready datasets (events + audio + transcripts)  
-- [ ] Offline multi-stem alignment script (`scripts/align_recordings.py`)  
-- [ ] Expand automated tests (more pytest + optional Playwright)  
-- [ ] Multiple concurrent moderators / sessions  
-
----
-
-## Suggested order of work
-
-1. ~~**`feature/media-recorder`** — record local mic on all roles when moderator starts recording~~ **done**  
-2. ~~**`feature/audio-upload`** — upload webm + timestamps; persist `audio_events`~~ **done** (option 1 soft gate)  
-3. **`chore/audio-storage-staging`** — VM directory, env, full pipeline smoke test  
-4. Hardening / reconnection and research tooling as needed  
-
----
+- [ ] Speech-to-text on saved stems
+- [ ] Researcher analytics
+- [ ] Export of aligned events + audio + transcripts
+- [ ] Offline multi-stem alignment
+- [ ] Broader automated tests
+- [ ] Multiple concurrent moderators / sessions

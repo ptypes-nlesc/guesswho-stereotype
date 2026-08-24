@@ -1,205 +1,80 @@
-# API Reference
+# API reference
 
-This page summarizes HTTP routes and Socket.IO events exposed by the application.
+JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."}`. Participant routes take `game_id` and `participant_id`. Moderator control routes require a staff session.
 
-## Base assumptions
+## HTTP
 
-- JSON responses follow a simple shape:
-  - success: {"status": "ok", ...}
-  - error: {"status": "error", "message": "..."}
-- Participant routes usually depend on game_id and participant_id.
-- Moderator routes require moderator session authentication.
+### Session
 
-## HTTP Routes
+- `GET /` — staff login
+- `POST /login` — `password`, optional `role` (`moderator` or `auditor`)
+- `GET /logout`
+- `GET /game/status` — query `game_id`, optional `participant_id`
 
-### Public / Session
+### Participants
 
-- GET /
-  - Moderator login page.
+- `GET /join` — query `token`
+- `GET /join/status` — optional `participant_id`
+- `POST /join/enter` — `{"token": "..."}`
 
-- POST /login
-  - Authenticates moderator using MODERATOR_PASSWORD.
+### Players
 
-- GET /logout
-  - Clears moderator session.
+- `GET /player1`, `GET /player2` — query `game_id`, `participant_id`
+- `POST /eliminate_card` — `{"game_id", "card_id"}`
 
-- GET /game/status
-  - Query: game_id, optional participant_id.
-  - Returns active state and whether participant is assigned.
+### Moderator
 
-### Participant Access
+- `GET /dashboard`
+- `GET /moderator` — query `game_id`
+- `GET /moderator/control` — redirects to dashboard
+- `GET /moderator/control/status`
+- `POST /moderator/control/open`
+- `POST /moderator/control/close`
+- `POST /moderator/control/start` — `READY` → `IN_PROGRESS`
+- `POST /moderator/control/end` — `IN_PROGRESS` → `ENDED`
+- `POST /moderator/control/swap_roles`
+- `POST /moderator/control/reset` — `CLOSED`
+- `POST /moderator/tokens/generate` — `{"count": 1..100}`, returns CSV
 
-- GET /join
-  - Query: token.
-  - Validates token and returns waiting page context.
+### Recording
 
-- GET /join/status
-  - Query: optional participant_id.
-  - Returns entry availability based on active session state.
+- `POST /moderator/control/recording/start` — while `IN_PROGRESS`. Broadcasts `recording_start` (`recording_id`, `server_ts`). Clients start MediaRecorder.
+- `POST /moderator/control/recording/stop` — broadcasts `recording_stop`. Idempotent if already idle. Clients POST stems to `/audio/upload`.
+- `POST /audio/upload` — multipart:
+  - required: `file`, `game_id`, `recording_id`, `role`, `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`
+  - optional: `participant_id` (required for players), `server_ts`, `server_stop_ts`, `mime_type`
+  - players must be assigned to the game; moderator needs a staff session
+  - stores `{AUDIO_STORAGE_DIR}/{game_id}/{recording_id}_{role}_{participant}.webm`
+  - upserts `audio_events` on `(game_id, recording_id, role)`
+  - emits `audio_upload_complete`; updates `last_audio_uploads`
 
-- POST /join/enter
-  - Body: {"token": "..."}
-  - Redeems token, creates participant, enters waiting list.
+### Transcript and ICE
 
-### Player Views
+- `GET /transcript` — query `game_id`, optional `limit`, `type=all|events|chat`
+- `GET /api/webrtc/ice-servers` — optional `user_id` or `role`. Returns `mode`, `iceServers`, `iceTransportPolicy`. Never includes `TURN_SECRET`.
 
-- GET /player1
-  - Query: game_id, participant_id.
-  - Secret-card holder view.
+## Socket.IO
 
-- GET /player2
-  - Query: game_id, participant_id.
-  - Guesser grid view.
+**Client → server:** `join`, `chat`, `voice_join`, `webrtc_signal`
 
-- POST /eliminate_card
-  - Body: {"game_id": "...", "card_id": n}
-  - Eliminates a card for current round and broadcasts updates.
+**Server → client (selected):** `system`, `chat`, `peers_list`, `new_peer_joined`, `webrtc_signal`, `card_eliminated`, `eliminate`, `round_complete`, `roles_swapped`, `game_ended`
 
-### Moderator Views and Controls
+- `recording_start` / `recording_stop` — `{game_id, recording_id, server_ts}`
+- `audio_upload_complete` — `{game_id, recording_id, role, participant_id, audio_path, byte_size, audio_event_id}`
 
-- GET /dashboard
-  - Moderator dashboard.
+## State
 
-- GET /moderator
-  - Query: game_id.
-  - Live observer panel.
+`CLOSED` → `OPEN` → `READY` → `IN_PROGRESS` → `ENDED`
 
-- GET /moderator/control
-  - Redirects to dashboard.
+Live game state includes `waiting_participants`, `player1_id`, `player2_id`, `round_number`, `round_phase`, recording flags, `last_audio_uploads`.
 
-- GET /moderator/control/status
-  - Returns current moderator game state and control flags.
+## Tables
 
-- POST /moderator/control/open
-  - Opens entry and creates a session if needed.
-
-- POST /moderator/control/close
-  - Closes participant entry.
-
-- POST /moderator/control/start
-  - Transitions READY -> IN_PROGRESS.
-
-- POST /moderator/control/end
-  - Transitions IN_PROGRESS -> ENDED.
-
-- POST /moderator/control/swap_roles
-  - Swaps player roles and starts round 2.
-
-- POST /moderator/control/reset
-  - Resets current session to CLOSED.
-
-- POST /moderator/control/recording/start
-  - Starts a recording session while game state is IN_PROGRESS.
-  - Broadcasts recording_start to room game:{game_id}.
-  - Response includes recording_id and server_ts (UTC ISO-8601).
-  - Clients (player1, player2, moderator) start local-mic MediaRecorder on this event.
-
-- POST /moderator/control/recording/stop
-  - Stops the active recording session.
-  - Broadcasts recording_stop to room game:{game_id}.
-  - Idempotent when no recording is active (returns ok).
-  - Clients stop MediaRecorder and POST the stem to /audio/upload.
-
-- POST /audio/upload
-  - Multipart form: `file` plus metadata fields:
-    - required: `game_id`, `recording_id`, `role`,
-      `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`
-    - optional: `participant_id` (required for players), `server_ts`, `server_stop_ts`, `mime_type`
-  - Auth (soft): players must be assigned to the game; moderator requires staff session.
-  - Stores under `AUDIO_STORAGE_DIR/{game_id}/{recording_id}_{role}_{participant}.webm`
-  - Upserts `audio_events` (unique on game_id + recording_id + role).
-  - Broadcasts `audio_upload_complete` to room `game:{game_id}`.
-  - Updates game state `last_audio_uploads` for dashboard checklist.
-
-- POST /moderator/tokens/generate
-  - Body: {"count": 1..100}
-  - Returns CSV file with tokenized join links.
-
-### Transcript
-
-- GET /transcript
-  - Query: game_id, optional limit, optional type=all|events|chat
-  - Returns combined or filtered transcript output.
-
-### WebRTC ICE / TURN
-
-- GET /api/webrtc/ice-servers
-  - Optional query: `user_id` or `role` (embedded in minted TURN username)
-  - Returns browser-safe ICE config (never includes `TURN_SECRET`):
-    - `mode`: `coturn` | `public_fallback` | `stun_only`
-    - `iceServers`: RTCIceServer list
-    - `iceTransportPolicy`: `all` | `relay`
-    - `ttl` / `expires_at`: present in `coturn` mode
-  - **Remote (coturn):** set `TURN_SERVER`, `TURN_PORT`, `TURN_SECRET` (same as
-    coturn `static-auth-secret`) in server env.
-  - **Local:** leave secret unset → public STUN/TURN fallback for LAN tests.
-  - Optional env: `TURN_USE_PUBLIC_FALLBACK`, `TURN_TTL_SECONDS`,
-    `TURN_TRANSPORTS`, `TURN_INCLUDE_PUBLIC_STUN`, `ICE_TRANSPORT_POLICY`.
-
-## Socket.IO Events
-
-### Client -> Server
-
-- join
-  - Payload: {"game_id", "role", "participant_id"}
-  - Joins shared game room and role room.
-
-- chat
-  - Payload: {"game_id", "role", "participant_id", "text"}
-  - Writes chat row and broadcasts message.
-
-- voice_join
-  - Payload: {"game_id", "role", "participant_id", "client_id"}
-  - Registers participant in voice mesh.
-
-- webrtc_signal
-  - Payload: {"game_id", "role", "participant_id", "from_id", "to_id", "description"|"candidate"}
-  - Relays WebRTC signaling data to specific peer.
-
-### Server -> Client (selected)
-
-- system
-- chat
-- peers_list
-- new_peer_joined
-- webrtc_signal
-- card_eliminated
-- eliminate
-- round_complete
-- roles_swapped
-- recording_start
-  - Payload: {"game_id", "recording_id", "server_ts"}
-  - Clients record local microphone only (not remote WebRTC audio).
-- recording_stop
-  - Payload: {"game_id", "recording_id", "server_ts"}
-  - Clients finalize the local stem and upload to POST /audio/upload.
-- audio_upload_complete
-  - Payload: {"game_id", "recording_id", "role", "participant_id", "audio_path", "byte_size", "audio_event_id"}
-  - Emitted after a successful stem save.
-- game_ended
-  - Payload: {"game_id", "state"}
-  - Clients should leave voice when received.
-
-## State Model
-
-Primary flow:
-
-1. CLOSED
-2. OPEN
-3. READY
-4. IN_PROGRESS
-5. ENDED
-
-Game state tracks:
-
-- waiting_participants
-- player1_id, player2_id
-- round_number
-- round_phase
-
-## Data Logging Split
-
-- events: system/session events
-- chat: chat messages
-- eliminated_cards: elimination facts
-- rounds: secret card per round and timing
+| Table | Content |
+|-------|---------|
+| `events` | Session / system actions |
+| `chat` | Messages |
+| `eliminated_cards` | Eliminations |
+| `rounds` | Secret card and timing |
+| `audio_events` | Stem path, timestamps, byte size |
+| `access_tokens` | Join tokens |
