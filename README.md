@@ -5,47 +5,30 @@
 ![License](https://img.shields.io/badge/License-Apache%202.0-orange)
 [![CI](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml/badge.svg)](https://github.com/ptypes-nlesc/guesswho-stereotype/actions/workflows/pytest.yml)
 
-# GuessWho Stereotype (Xposed)
+# Xposed
 
-Research web app for studying how people express stereotypes in a two-player deduction game (Guess Who–style). Moderators run sessions; participants join via one-time tokens. Chat, voice, and game events are logged for analysis.
+Research web app for studying how people express stereotypes in a two-player deduction game. A moderator runs the session; participants join with one-time tokens. Chat, voice, and game events are stored for analysis.
 
 ## How it works
 
-- **Player 1 (secret holder)** draws a secret character and answers questions.  
-- **Player 2 (guesser)** sees a grid of characters, asks feature-based questions, and eliminates cards.  
-- After round 1, **roles swap**. A **moderator** observes, can chat, and controls session flow and recording.  
-- Optional **read-only auditor** staff role for low-privilege access.
+- **Player 1** sees a secret character and answers questions.
+- **Player 2** sees a 12-card grid, asks questions, and eliminates cards.
+- After round 1, **roles swap**. A **moderator** observes, chats, and controls recording.
+- Optional **auditor** role: read-only staff access.
 
-## Features (current)
-
-| Area | What exists |
-|------|-------------|
-| **Sessions** | Moderator dashboard: open entry, tokens, start / end / reset, role swap |
-| **Access** | One-time join tokens; staff login (`MODERATOR_PASSWORD`, `AUDITOR_PASSWORD`) |
-| **Realtime** | Socket.IO chat, game events, voice signaling |
-| **Voice** | 3-way WebRTC mesh; mic check; auto-join; mute; coturn TURN via `GET /api/webrtc/ice-servers` |
-| **Recording control** | Moderator start/stop; `recording_start` / `recording_stop` to all roles |
-| **Local capture + upload** | Each browser records its own mic and POSTs stems to `/audio/upload` (`AUDIO_STORAGE_DIR`) |
-| **Data** | MySQL/MariaDB persistence; Redis for live game/voice state |
-| **Deploy** | Gunicorn + gevent WebSocket worker; reverse-proxy friendly (ProxyFix) |
-
-Roadmap and next steps (staging audio storage smoke test next): [docs/ROADMAP.md](docs/ROADMAP.md).  
-User guide, API, and more: [docs/](docs/) (MkDocs).
-
-## Tech stack
+## Stack
 
 | Layer | Technology |
-|-------|------------|
-| Frontend | HTML, JavaScript (Socket.IO client, WebRTC) |
-| Backend | Flask 3 + Flask-SocketIO |
-| Database | MySQL / MariaDB |
-| Live state | Redis (optional in-memory fallback where implemented) |
-| Voice | WebRTC mesh; TURN (coturn) or public ICE fallback |
-| Runtime | Gunicorn + `GeventWebSocketWorker` |
+|------|-------------|
+| Frontend | HTML, JavaScript (Socket.IO, WebRTC) |
+| Backend | Flask 3, Flask-SocketIO |
+| Data | MariaDB; Redis for live state |
+| Voice | WebRTC mesh; coturn TURN or public ICE fallback |
+| Runtime | Gunicorn + gevent WebSocket worker |
 
-## Run locally (minimal)
+## Local run
 
-**Needs:** Python 3.13+, MySQL/MariaDB, Redis (recommended).
+Requires Python 3.13+, MariaDB or MySQL, and Redis.
 
 ```bash
 python -m venv venv
@@ -53,14 +36,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create a `.env` in the project root (required at minimum):
+`.env` in the project root (minimum):
 
 ```env
 SECRET_KEY=change-me
 MODERATOR_PASSWORD=change-me
-# DB_* or DATABASE_URL — see docs / deploy .env examples
+# DB_HOST, DB_USER, DB_PWD, DB_NAME — or DATABASE_URL
 # REDIS_HOST=localhost
-# Optional voice: omit TURN_* for public ICE fallback; set TURN_SERVER + TURN_SECRET for coturn
+# AUDIO_STORAGE_DIR=  # filesystem path; default data/audio
+# TURN_SERVER / TURN_SECRET  # omit for public ICE fallback
 ```
 
 ```bash
@@ -68,17 +52,11 @@ gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker \
   -w 1 --bind 127.0.0.1:5000 --log-level info wsgi:app
 ```
 
-Open **http://127.0.0.1:5000/** — staff login → dashboard → open entry / tokens → participants on `/join` → start game.
+Open http://127.0.0.1:5000/ → staff login → dashboard → open entry / tokens → participants join → start game.
 
-Voice and full staging deploy (Apache, coturn, WireGuard/GSA) are covered in the docs and environment-specific notes, not here.
+## Documentation
 
-## Tests
-
-```bash
-pytest -q
-```
-
-CI runs the same suite via GitHub Actions.
+MkDocs site in [`docs/`](docs/): [user guide](docs/USAGE_GUIDE.md), [API](docs/api.md), [deploy](docs/deploy.md), [roadmap](docs/ROADMAP.md).
 
 ## License
 

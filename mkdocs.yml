@@ -18,8 +18,9 @@ theme:
 
 nav:
   - Home: index.md
-  - User Guide: USAGE_GUIDE.md
-  - API Reference: api.md
+  - User guide: USAGE_GUIDE.md
+  - API: api.md
+  - Deploy: deploy.md
   - Roadmap: ROADMAP.md
 
 markdown_extensions:
