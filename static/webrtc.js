@@ -130,6 +130,17 @@
     let isMuted = false;
     let audioUnlockBound = false;
     let audioCtx = null;
+    let speakingTimer = null;
+    let speakingAnalyser = null;
+    let speakingSource = null;
+    let speakingBuf = null;
+    let lastSpeaking = false;
+    let speakingHangoverUntil = 0;
+
+    const SPEAKING_ROLES = { player1: true, player2: true };
+    const SPEAKING_THRESHOLD = 0.035;
+    const SPEAKING_HANGOVER_MS = 400;
+    const SPEAKING_POLL_MS = 80;
 
     function bindSilentAudioUnlock() {
       if (audioUnlockBound) return;
@@ -236,8 +247,82 @@
       return allOk;
     }
 
+    function setSpeakingState(speaking) {
+      speaking = !!speaking;
+      if (speaking === lastSpeaking) return;
+      lastSpeaking = speaking;
+      socket.emit(
+        "speaking",
+        signalPayload({
+          speaking,
+        })
+      );
+      if (typeof opts.onSpeakingChange === "function") {
+        opts.onSpeakingChange({ role, speaking });
+      }
+    }
+
+    function stopSpeakingMonitor() {
+      if (speakingTimer) {
+        clearInterval(speakingTimer);
+        speakingTimer = null;
+      }
+      try {
+        if (speakingSource) speakingSource.disconnect();
+      } catch (_) {}
+      speakingAnalyser = null;
+      speakingSource = null;
+      speakingBuf = null;
+      speakingHangoverUntil = 0;
+      setSpeakingState(false);
+    }
+
+    function speakingRms(analyser, buf) {
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sum += v * v;
+      }
+      return Math.sqrt(sum / buf.length);
+    }
+
+    function startSpeakingMonitor() {
+      stopSpeakingMonitor();
+      if (!SPEAKING_ROLES[role] || !localStream) return;
+      try {
+        resumeAudioContext();
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!audioCtx) audioCtx = new Ctx();
+        speakingSource = audioCtx.createMediaStreamSource(localStream);
+        speakingAnalyser = audioCtx.createAnalyser();
+        speakingAnalyser.fftSize = 512;
+        speakingAnalyser.smoothingTimeConstant = 0.3;
+        speakingSource.connect(speakingAnalyser);
+        speakingBuf = new Uint8Array(speakingAnalyser.fftSize);
+        speakingTimer = setInterval(() => {
+          if (isMuted || !speakingAnalyser) {
+            setSpeakingState(false);
+            return;
+          }
+          const rms = speakingRms(speakingAnalyser, speakingBuf);
+          const now = Date.now();
+          if (rms >= SPEAKING_THRESHOLD) {
+            speakingHangoverUntil = now + SPEAKING_HANGOVER_MS;
+            setSpeakingState(true);
+          } else if (now >= speakingHangoverUntil) {
+            setSpeakingState(false);
+          }
+        }, SPEAKING_POLL_MS);
+      } catch (err) {
+        console.warn("[WebRTC] speaking monitor failed", err);
+      }
+    }
+
     function setMuted(muted) {
       isMuted = muted;
+      if (muted) setSpeakingState(false);
       if (localStream) {
         localStream.getAudioTracks().forEach((track) => {
           track.enabled = !muted;
@@ -815,6 +900,7 @@
         voiceActive = true;
         bindSilentAudioUnlock();
         setMuted(false);
+        startSpeakingMonitor();
         updateStatus();
       } catch (err) {
         console.error("Voice start failed:", err);
@@ -825,6 +911,7 @@
     }
 
     function stopVoice() {
+      stopSpeakingMonitor();
       socket.emit("voice_leave", {
         game_id: gameId,
         client_id: clientId,
@@ -901,6 +988,7 @@
     });
 
     window.addEventListener("beforeunload", () => {
+      stopSpeakingMonitor();
       if (!voiceActive) return;
       socket.emit("voice_leave", {
         game_id: gameId,

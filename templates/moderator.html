@@ -29,9 +29,11 @@
         </p>
         {% endif %}
 
+        <p id="speaking-status" class="speaking-status" aria-live="polite">Niemand aan het woord</p>
+
         <div class="player-panels">
-            <div class="player-box">
-                <h3>Speler 1 (geheime kaart)</h3>
+            <div class="player-box" id="player1-box" data-role="player1">
+                <h3>Speler 1 (geheime kaart) <span class="speaking-badge">aan het woord</span></h3>
                 {% if secret_card is defined %}
                 <div class="secret-card">
                     <img src="{{ url_for('static', filename='cards/' + secret_card.id|string + '.png') }}" alt="{{ secret_card.name }}"
@@ -42,8 +44,8 @@
                 {% endif %}
             </div>
 
-            <div class="player-box">
-                <h3>Speler 2 (raden)</h3>
+            <div class="player-box" id="player2-box" data-role="player2">
+                <h3>Speler 2 (raden) <span class="speaking-badge">aan het woord</span></h3>
                 <div id="card-grid">
                     {% for card_item in cards|default([]) %}
                     <div class="card{% if card_item.id in (eliminated|default([])) %} eliminated{% endif %}" id="card{{ card_item.id }}">
@@ -97,6 +99,44 @@
         function roleLabel(role) {
             if (!role) return 'systeem';
             return ROLE_LABELS[role] || role;
+        }
+
+        const speakingState = { player1: false, player2: false };
+        const speakingBoxes = {
+            player1: document.getElementById('player1-box'),
+            player2: document.getElementById('player2-box'),
+        };
+        const speakingStatusEl = document.getElementById('speaking-status');
+
+        function renderSpeakingStatus() {
+            const p1 = !!speakingState.player1;
+            const p2 = !!speakingState.player2;
+            if (speakingBoxes.player1) {
+                speakingBoxes.player1.classList.toggle('is-speaking', p1);
+            }
+            if (speakingBoxes.player2) {
+                speakingBoxes.player2.classList.toggle('is-speaking', p2);
+            }
+            if (!speakingStatusEl) return;
+            if (p1 && p2) {
+                speakingStatusEl.textContent = 'Speler 1 en speler 2 aan het woord';
+                speakingStatusEl.classList.add('is-live');
+            } else if (p1) {
+                speakingStatusEl.textContent = 'Speler 1 aan het woord';
+                speakingStatusEl.classList.add('is-live');
+            } else if (p2) {
+                speakingStatusEl.textContent = 'Speler 2 aan het woord';
+                speakingStatusEl.classList.add('is-live');
+            } else {
+                speakingStatusEl.textContent = 'Niemand aan het woord';
+                speakingStatusEl.classList.remove('is-live');
+            }
+        }
+
+        function setPlayerSpeaking(role, speaking) {
+            if (role !== 'player1' && role !== 'player2') return;
+            speakingState[role] = !!speaking;
+            renderSpeakingStatus();
         }
 
         // --- Socket setup ---------------------------------------------
@@ -171,6 +211,8 @@
 
                     if (!gameEnded) {
                         gameEnded = true;
+                        setPlayerSpeaking('player1', false);
+                        setPlayerSpeaking('player2', false);
                         if (voice) voice.stopVoice();
                         // Disable interactions
                         if (!readOnly) {
@@ -266,6 +308,10 @@
 
         // --- Socket events --------------------------------------------
         socket.on("chat", data => appendMessage(`<b>${roleLabel(data.role)}:</b> ${data.text}`));
+        socket.on("speaking", data => {
+            if (!data || data.game_id !== gameId) return;
+            setPlayerSpeaking(data.role, data.speaking);
+        });
         socket.on("system", data => {
             if (data.action === "join") {
                 const key = `${data.role}`;

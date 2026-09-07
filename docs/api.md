@@ -27,7 +27,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 - `GET /dashboard`
 - `GET /moderator` — query `game_id`
 - `GET /moderator/control` — redirects to dashboard
-- `GET /moderator/control/status`
+- `GET /moderator/control/status` — includes `player1_id`, `player2_id`, and join `player1_token` / `player2_token` once roles are assigned
 - `POST /moderator/control/open`
 - `POST /moderator/control/close`
 - `POST /moderator/control/start` — `READY` → `IN_PROGRESS`
@@ -55,9 +55,12 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 
 ## Socket.IO
 
-**Client → server:** `join`, `chat`, `voice_join`, `webrtc_signal`
+**Client → server:** `join`, `chat`, `voice_join`, `webrtc_signal`, `speaking`
 
-**Server → client (selected):** `system`, `chat`, `peers_list`, `new_peer_joined`, `webrtc_signal`, `card_eliminated`, `eliminate`, `round_complete`, `roles_swapped`, `game_ended`
+**Server → client (selected):** `system`, `chat`, `peers_list`, `new_peer_joined`, `webrtc_signal`, `card_eliminated`, `eliminate`, `round_complete`, `roles_swapped`, `game_ended`, `speaking`
+
+- `speaking` (client → server, player1/player2 only) — `{game_id, role, speaking}` plus optional `participant_id`. Relayed to the moderator and auditor rooms only. Not stored.
+- `speaking` (server → staff) — `{game_id, role, speaking}` for live “who is talking” on the observer view.
 
 - `recording_start` / `recording_stop` — `{game_id, recording_id, server_ts}`
 - `audio_upload_complete` — `{game_id, recording_id, role, participant_id, audio_path, byte_size, audio_event_id}`

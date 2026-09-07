@@ -497,6 +497,7 @@ GAME_STATES = {
 CURRENT_SESSION_GAME_ID = None  # The active game session
 
 AUDIO_UPLOAD_ROLES = frozenset({"player1", "player2", "moderator"})
+SPEAKING_ROLES = frozenset({"player1", "player2"})
 
 
 def _ensure_audio_events_schema(cursor):
@@ -1064,6 +1065,29 @@ def get_participant_binding(game_id, participant_id):
         )
         row = c.fetchone()
         return row['role'] if row else None
+
+
+def get_tokens_by_participant_ids(participant_ids):
+    """Map participant_id -> join token for the given ids (skips missing)."""
+    ids = [pid for pid in participant_ids if pid]
+    if not ids:
+        return {}
+    try:
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            placeholders = ",".join(["%s"] * len(ids))
+            c.execute(
+                f"SELECT participant_id, token FROM access_tokens WHERE participant_id IN ({placeholders})",
+                tuple(ids),
+            )
+            return {
+                row["participant_id"]: row["token"]
+                for row in c.fetchall()
+                if row.get("participant_id") and row.get("token")
+            }
+    except Exception as e:
+        print(f"Error looking up access tokens: {e}")
+        return {}
 
 
 def set_participant_binding(game_id, participant_id, role, round_number=None):
@@ -1699,6 +1723,10 @@ def moderator_control_status():
     except (TypeError, ValueError):
         round_number = 1
 
+    player1_id = game_state.get('player1_id')
+    player2_id = game_state.get('player2_id')
+    tokens = get_tokens_by_participant_ids([player1_id, player2_id])
+
     return jsonify({
         "status": "ok",
         "game_id": moderator_game_id,
@@ -1706,8 +1734,10 @@ def moderator_control_status():
         "round_number": round_number,
         "can_swap_roles": game_state.get('state') == 'IN_PROGRESS' and round_number == 1,
         "waiting_count": len(game_state.get('waiting_participants', [])),
-        "player1_id": game_state.get('player1_id'),
-        "player2_id": game_state.get('player2_id'),
+        "player1_id": player1_id,
+        "player2_id": player2_id,
+        "player1_token": tokens.get(player1_id),
+        "player2_token": tokens.get(player2_id),
         "recording_active": bool(game_state.get("recording_active")),
         "recording_id": game_state.get("recording_id") if game_state.get("recording_active") else None,
         "last_audio_uploads": game_state.get("last_audio_uploads"),
@@ -2541,6 +2571,34 @@ def handle_chat(data):
         "chat", {"role": role, "text": text, "game_id": game_id}, to=f"game:{game_id}"
     )
     print(f"💬 {role}@{game_id}: {text}")
+
+
+@socketio.on("speaking")
+def handle_speaking(data):
+    """Relay live talker state to staff views. Ephemeral — not stored."""
+    data = data or {}
+    game_id = data.get("game_id")
+    role = data.get("role")
+    participant_id = data.get("participant_id")
+    speaking = bool(data.get("speaking"))
+
+    if not game_id:
+        return {"status": "error", "message": "game_id required"}
+    if role not in SPEAKING_ROLES:
+        return {"status": "error", "message": "Only player1 and player2 report speaking"}
+
+    valid, error = validate_role_binding(game_id, participant_id, role)
+    if not valid:
+        return {"status": "error", "message": error}
+
+    payload = {
+        "game_id": game_id,
+        "role": role,
+        "speaking": speaking,
+    }
+    socketio.emit("speaking", payload, to=f"game:{game_id}:moderator")
+    socketio.emit("speaking", payload, to=f"game:{game_id}:auditor")
+    return {"status": "ok"}
 
 
 @socketio.on("voice_join")

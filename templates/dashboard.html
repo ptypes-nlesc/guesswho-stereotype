@@ -259,6 +259,30 @@
             color: #0f172a;
         }
 
+        .player-token {
+            display: block;
+            margin-top: 8px;
+            padding: 8px 10px;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.82em;
+            color: #0f172a;
+            word-break: break-all;
+            line-height: 1.35;
+        }
+
+        .player-token-label {
+            display: block;
+            margin-top: 10px;
+            font-size: 0.78em;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
         .link-btn {
             display: inline-block;
             margin: 4px 0;
@@ -442,6 +466,16 @@
             <p id="action-feedback" class="action-feedback" role="status" aria-live="polite" hidden></p>
         </div>
 
+        <div class="info-section" id="participant-section" style="display: none;">
+            <h3>👥 Deelnemers</h3>
+            <div class="participant-info" id="participant-info"></div>
+        </div>
+
+        <div class="info-section" id="game-links-section" style="display: none;">
+            <h3>🎯 Spellinks</h3>
+            <div id="game-links"></div>
+        </div>
+
         {% if staff_role != 'auditor' %}
         <div class="control-buttons" role="toolbar" aria-label="Sessiebediening">
             <button id="btn-open" class="control-btn btn-open" type="button">Toegang openen</button>
@@ -526,16 +560,6 @@
         </div>
         {% endif %}
 
-        <div class="info-section" id="participant-section" style="display: none;">
-            <h3>👥 Deelnemers</h3>
-            <div class="participant-info" id="participant-info"></div>
-        </div>
-
-        <div class="info-section" id="game-links-section" style="display: none;">
-            <h3>🎯 Spellinks</h3>
-            <div id="game-links"></div>
-        </div>
-
         <div class="info-section" id="audio-stems-section" style="display: none;">
             <h3>🎤 Audio-opnames (laatste take)</h3>
             <p class="step-note" style="margin-top: 0;">
@@ -593,6 +617,22 @@
             moderator: 'moderator',
         };
 
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function playerTokenHtml(token) {
+            if (!token) {
+                return '<span class="player-token-label">Token</span><code class="player-token">onbekend</code>';
+            }
+            return `<span class="player-token-label">Token</span><code class="player-token">${escapeHtml(token)}</code>`;
+        }
+
         async function updateStatus() {
             try {
                 const res = await fetch('/moderator/control/status');
@@ -647,12 +687,12 @@
                         const participantInfo = document.getElementById('participant-info');
                         participantInfo.innerHTML = `
                             <div class="participant-card">
-                                <strong>🎭 Speler 1 (geheime kaart)</strong><br>
-                                <small>ID: ${data.player1_id ? data.player1_id.substring(0, 8) + '…' : 'n.v.t.'}</small>
+                                <strong>🎭 Speler 1 (geheime kaart)</strong>
+                                ${playerTokenHtml(data.player1_token)}
                             </div>
                             <div class="participant-card">
-                                <strong>🔍 Speler 2 (raden)</strong><br>
-                                <small>ID: ${data.player2_id ? data.player2_id.substring(0, 8) + '…' : 'n.v.t.'}</small>
+                                <strong>🔍 Speler 2 (raden)</strong>
+                                ${playerTokenHtml(data.player2_token)}
                             </div>
                         `;
                     } else {
