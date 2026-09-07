@@ -90,11 +90,18 @@
     }
 
     const participantStorageKey = `participant_id_${gameId}_${role}`;
-    let participantId = localStorage.getItem(participantStorageKey);
+    let participantId = opts.participantId || null;
+    if (!participantId) {
+      try {
+        participantId = localStorage.getItem(participantStorageKey);
+      } catch (_) {}
+    }
     if (!participantId) {
       participantId = crypto.randomUUID();
-      localStorage.setItem(participantStorageKey, participantId);
     }
+    try {
+      localStorage.setItem(participantStorageKey, participantId);
+    } catch (_) {}
     window.participantId = participantId;
     console.log(`[WebRTC] Participant ID (${role}): ${participantId}`);
     const includeParticipantId = role !== "moderator";
@@ -133,6 +140,7 @@
     let speakingTimer = null;
     let speakingAnalyser = null;
     let speakingSource = null;
+    let speakingProbe = null;
     let speakingBuf = null;
     let lastSpeaking = false;
     let speakingHangoverUntil = 0;
@@ -140,10 +148,14 @@
     let remoteTalk = {};
 
     const SPEAKING_ROLES = { player1: true, player2: true };
-    // Same frequency-average heuristic as mic-check.js (works with AGC/NS).
+    // Local (player) analyser: same frequency-average heuristic as mic-check.js.
     const SPEAKING_LEVEL = 8;
-    const SPEAKING_HANGOVER_MS = 400;
     const SPEAKING_POLL_MS = 80;
+    // Remote (moderator) lamp: inbound RTP audioLevel is 0–1.
+    const REMOTE_SPEAKING_LEVEL = 0.02;
+    const REMOTE_SPEAKING_ENERGY = 0.002;
+    const REMOTE_SPEAKING_POLL_MS = 250;
+    const SPEAKING_HANGOVER_MS = 400;
     const detectRemoteSpeaking =
       opts.detectRemoteSpeaking === true || role === "moderator";
 
@@ -269,6 +281,24 @@
       return buf.length ? sum / buf.length : 0;
     }
 
+    function probeStreamFrom(stream) {
+      if (!stream) return null;
+      const tracks = stream.getAudioTracks();
+      if (!tracks.length) return null;
+      return new MediaStream(
+        tracks.map((track) => (typeof track.clone === "function" ? track.clone() : track))
+      );
+    }
+
+    function stopProbe(stream) {
+      if (!stream) return;
+      stream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (_) {}
+      });
+    }
+
     function notifySpeaking(talkRole, speaking) {
       if (!SPEAKING_ROLES[talkRole]) return;
       speaking = !!speaking;
@@ -298,6 +328,8 @@
       try {
         if (speakingSource) speakingSource.disconnect();
       } catch (_) {}
+      stopProbe(speakingProbe);
+      speakingProbe = null;
       speakingAnalyser = null;
       speakingSource = null;
       speakingBuf = null;
@@ -311,7 +343,9 @@
       try {
         const ctx = ensureAudioContext();
         if (!ctx) return;
-        speakingSource = ctx.createMediaStreamSource(localStream);
+        speakingProbe = probeStreamFrom(localStream);
+        if (!speakingProbe) return;
+        speakingSource = ctx.createMediaStreamSource(speakingProbe);
         speakingAnalyser = ctx.createAnalyser();
         speakingAnalyser.fftSize = 256;
         speakingAnalyser.smoothingTimeConstant = 0.3;
@@ -343,63 +377,105 @@
       if (entry && entry.last) notifySpeaking(peerRole, true);
     }
 
+    function inboundAudioLevel(report) {
+      let level = null;
+      let energy = null;
+      let ts = null;
+      report.forEach((r) => {
+        const audio = r.kind === "audio" || r.mediaType === "audio";
+        if (!audio) return;
+        if (r.type === "inbound-rtp") {
+          if (typeof r.audioLevel === "number") {
+            level = Math.max(level || 0, r.audioLevel);
+          }
+          if (typeof r.totalAudioEnergy === "number") {
+            energy = r.totalAudioEnergy;
+            ts = r.timestamp;
+          }
+        }
+        if (r.type === "track" && typeof r.audioLevel === "number") {
+          level = Math.max(level || 0, r.audioLevel);
+        }
+      });
+      return { level, energy, ts };
+    }
+
     function stopRemoteTalk(peerId) {
       const entry = remoteTalk[peerId];
       if (!entry) return;
       if (entry.timer) clearInterval(entry.timer);
-      try {
-        if (entry.source) entry.source.disconnect();
-      } catch (_) {}
       const peerRole = peerRoles[peerId];
       delete remoteTalk[peerId];
       if (entry.last) notifySpeaking(peerRole, false);
     }
 
     function stopAllRemoteTalk() {
-      Object.keys(remoteTalk).forEach((peerId) => stopRemoteTalk(peerId));
+      Object.keys(remoteTalk).forEach((id) => stopRemoteTalk(id));
     }
 
-    function startRemoteTalk(peerId, stream) {
-      if (!detectRemoteSpeaking || !peerId || !stream) return;
-      stopRemoteTalk(peerId);
-      try {
-        const ctx = ensureAudioContext();
-        if (!ctx) return;
-        const source = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.3;
-        source.connect(analyser);
-        const buf = new Uint8Array(analyser.frequencyBinCount);
-        const entry = {
-          source,
-          analyser,
-          buf,
-          last: false,
-          hangoverUntil: 0,
-          timer: null,
-        };
-        remoteTalk[peerId] = entry;
-        entry.timer = setInterval(() => {
-          const current = remoteTalk[peerId];
-          if (!current || !current.analyser) return;
-          ensureAudioContext();
-          const level = analyserLevel(current.analyser, current.buf);
+    function startRemoteTalk(peerId) {
+      if (!detectRemoteSpeaking || !peerId) return;
+      if (remoteTalk[peerId]) return;
+      const entry = {
+        last: false,
+        hangoverUntil: 0,
+        lastEnergy: null,
+        lastEnergyTs: null,
+        inflight: false,
+        timer: null,
+      };
+      remoteTalk[peerId] = entry;
+
+      const tick = async () => {
+        const current = remoteTalk[peerId];
+        const pc = peers[peerId];
+        if (!current || !pc || current.inflight) return;
+        current.inflight = true;
+        try {
+          const report = await pc.getStats();
+          const { level, energy, ts } = inboundAudioLevel(report);
+          let amp = typeof level === "number" ? level : 0;
+          if (
+            typeof level !== "number" &&
+            energy != null &&
+            ts != null &&
+            current.lastEnergy != null &&
+            current.lastEnergyTs != null
+          ) {
+            const dt = (ts - current.lastEnergyTs) / 1000;
+            if (dt > 0) {
+              amp = (energy - current.lastEnergy) / dt;
+            }
+          }
+          if (energy != null && ts != null) {
+            current.lastEnergy = energy;
+            current.lastEnergyTs = ts;
+          }
+          const threshold =
+            typeof level === "number" ? REMOTE_SPEAKING_LEVEL : REMOTE_SPEAKING_ENERGY;
           const now = Date.now();
           let speaking = current.last;
-          if (level > SPEAKING_LEVEL) {
+          if (amp > threshold) {
             current.hangoverUntil = now + SPEAKING_HANGOVER_MS;
             speaking = true;
           } else if (now >= current.hangoverUntil) {
             speaking = false;
           }
-          if (speaking === current.last) return;
-          current.last = speaking;
-          notifySpeaking(peerRoles[peerId], speaking);
-        }, SPEAKING_POLL_MS);
-      } catch (err) {
-        console.warn("[WebRTC] remote speaking monitor failed", peerId, err);
-      }
+          if (speaking !== current.last) {
+            current.last = speaking;
+            notifySpeaking(peerRoles[peerId], speaking);
+          }
+        } catch (err) {
+          if (debug) {
+            console.warn("[WebRTC] inbound getStats speaking failed", peerId, err);
+          }
+        } finally {
+          if (remoteTalk[peerId] === current) current.inflight = false;
+        }
+      };
+
+      entry.timer = setInterval(tick, REMOTE_SPEAKING_POLL_MS);
+      tick();
     }
 
     function setMuted(muted) {
@@ -623,7 +699,7 @@
       if (audio.srcObject !== stream) {
         audio.srcObject = stream;
       }
-      startRemoteTalk(peerId, stream);
+      startRemoteTalk(peerId);
 
       console.log(`[WebRTC] Remote track from ${peerId}`, {
         id: track.id,
@@ -749,6 +825,7 @@
           lastIceFailure = null;
           iceRestartAttempts[peerId] = 0;
           startStats(peerId, pc);
+          startRemoteTalk(peerId);
           playAllRemoteAudio().then(() => updateStatus());
         }
         updateStatus();
@@ -1077,6 +1154,7 @@
 
     window.addEventListener("beforeunload", () => {
       stopSpeakingMonitor();
+      stopAllRemoteTalk();
       if (!voiceActive) return;
       socket.emit("voice_leave", {
         game_id: gameId,

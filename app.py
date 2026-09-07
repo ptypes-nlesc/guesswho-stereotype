@@ -2579,7 +2579,6 @@ def handle_speaking(data):
     data = data or {}
     game_id = data.get("game_id")
     role = data.get("role")
-    participant_id = data.get("participant_id")
     speaking = bool(data.get("speaking"))
 
     if not game_id:
@@ -2587,17 +2586,17 @@ def handle_speaking(data):
     if role not in SPEAKING_ROLES:
         return {"status": "error", "message": "Only player1 and player2 report speaking"}
 
-    valid, error = validate_role_binding(game_id, participant_id, role)
-    if not valid:
-        return {"status": "error", "message": error}
-
     payload = {
         "game_id": game_id,
         "role": role,
         "speaking": speaking,
     }
-    socketio.emit("speaking", payload, to=f"game:{game_id}:moderator")
-    socketio.emit("speaking", payload, to=f"game:{game_id}:auditor")
+    try:
+        socketio.emit("speaking", payload, to=f"game:{game_id}:moderator")
+        socketio.emit("speaking", payload, to=f"game:{game_id}:auditor")
+    except Exception as e:
+        print(f"speaking relay failed for {game_id}: {e}")
+        return {"status": "error", "message": "relay failed"}
     return {"status": "ok"}
 
 
