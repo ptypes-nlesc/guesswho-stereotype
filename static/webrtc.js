@@ -136,11 +136,16 @@
     let speakingBuf = null;
     let lastSpeaking = false;
     let speakingHangoverUntil = 0;
+    let peerRoles = {};
+    let remoteTalk = {};
 
     const SPEAKING_ROLES = { player1: true, player2: true };
-    const SPEAKING_THRESHOLD = 0.035;
+    // Same frequency-average heuristic as mic-check.js (works with AGC/NS).
+    const SPEAKING_LEVEL = 8;
     const SPEAKING_HANGOVER_MS = 400;
     const SPEAKING_POLL_MS = 80;
+    const detectRemoteSpeaking =
+      opts.detectRemoteSpeaking === true || role === "moderator";
 
     function bindSilentAudioUnlock() {
       if (audioUnlockBound) return;
@@ -247,6 +252,31 @@
       return allOk;
     }
 
+    function ensureAudioContext() {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      if (!audioCtx) audioCtx = new Ctx();
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume().catch(() => {});
+      }
+      return audioCtx;
+    }
+
+    function analyserLevel(analyser, buf) {
+      analyser.getByteFrequencyData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i];
+      return buf.length ? sum / buf.length : 0;
+    }
+
+    function notifySpeaking(talkRole, speaking) {
+      if (!SPEAKING_ROLES[talkRole]) return;
+      speaking = !!speaking;
+      if (typeof opts.onSpeakingChange === "function") {
+        opts.onSpeakingChange({ role: talkRole, speaking });
+      }
+    }
+
     function setSpeakingState(speaking) {
       speaking = !!speaking;
       if (speaking === lastSpeaking) return;
@@ -257,9 +287,7 @@
           speaking,
         })
       );
-      if (typeof opts.onSpeakingChange === "function") {
-        opts.onSpeakingChange({ role, speaking });
-      }
+      notifySpeaking(role, speaking);
     }
 
     function stopSpeakingMonitor() {
@@ -277,38 +305,27 @@
       setSpeakingState(false);
     }
 
-    function speakingRms(analyser, buf) {
-      analyser.getByteTimeDomainData(buf);
-      let sum = 0;
-      for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128;
-        sum += v * v;
-      }
-      return Math.sqrt(sum / buf.length);
-    }
-
     function startSpeakingMonitor() {
       stopSpeakingMonitor();
       if (!SPEAKING_ROLES[role] || !localStream) return;
       try {
-        resumeAudioContext();
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) return;
-        if (!audioCtx) audioCtx = new Ctx();
-        speakingSource = audioCtx.createMediaStreamSource(localStream);
-        speakingAnalyser = audioCtx.createAnalyser();
-        speakingAnalyser.fftSize = 512;
+        const ctx = ensureAudioContext();
+        if (!ctx) return;
+        speakingSource = ctx.createMediaStreamSource(localStream);
+        speakingAnalyser = ctx.createAnalyser();
+        speakingAnalyser.fftSize = 256;
         speakingAnalyser.smoothingTimeConstant = 0.3;
         speakingSource.connect(speakingAnalyser);
-        speakingBuf = new Uint8Array(speakingAnalyser.fftSize);
+        speakingBuf = new Uint8Array(speakingAnalyser.frequencyBinCount);
         speakingTimer = setInterval(() => {
           if (isMuted || !speakingAnalyser) {
             setSpeakingState(false);
             return;
           }
-          const rms = speakingRms(speakingAnalyser, speakingBuf);
+          ensureAudioContext();
+          const level = analyserLevel(speakingAnalyser, speakingBuf);
           const now = Date.now();
-          if (rms >= SPEAKING_THRESHOLD) {
+          if (level > SPEAKING_LEVEL) {
             speakingHangoverUntil = now + SPEAKING_HANGOVER_MS;
             setSpeakingState(true);
           } else if (now >= speakingHangoverUntil) {
@@ -317,6 +334,71 @@
         }, SPEAKING_POLL_MS);
       } catch (err) {
         console.warn("[WebRTC] speaking monitor failed", err);
+      }
+    }
+
+    function rememberPeerRole(peerId, peerRole) {
+      if (peerId && peerRole) peerRoles[peerId] = peerRole;
+      const entry = remoteTalk[peerId];
+      if (entry && entry.last) notifySpeaking(peerRole, true);
+    }
+
+    function stopRemoteTalk(peerId) {
+      const entry = remoteTalk[peerId];
+      if (!entry) return;
+      if (entry.timer) clearInterval(entry.timer);
+      try {
+        if (entry.source) entry.source.disconnect();
+      } catch (_) {}
+      const peerRole = peerRoles[peerId];
+      delete remoteTalk[peerId];
+      if (entry.last) notifySpeaking(peerRole, false);
+    }
+
+    function stopAllRemoteTalk() {
+      Object.keys(remoteTalk).forEach((peerId) => stopRemoteTalk(peerId));
+    }
+
+    function startRemoteTalk(peerId, stream) {
+      if (!detectRemoteSpeaking || !peerId || !stream) return;
+      stopRemoteTalk(peerId);
+      try {
+        const ctx = ensureAudioContext();
+        if (!ctx) return;
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.3;
+        source.connect(analyser);
+        const buf = new Uint8Array(analyser.frequencyBinCount);
+        const entry = {
+          source,
+          analyser,
+          buf,
+          last: false,
+          hangoverUntil: 0,
+          timer: null,
+        };
+        remoteTalk[peerId] = entry;
+        entry.timer = setInterval(() => {
+          const current = remoteTalk[peerId];
+          if (!current || !current.analyser) return;
+          ensureAudioContext();
+          const level = analyserLevel(current.analyser, current.buf);
+          const now = Date.now();
+          let speaking = current.last;
+          if (level > SPEAKING_LEVEL) {
+            current.hangoverUntil = now + SPEAKING_HANGOVER_MS;
+            speaking = true;
+          } else if (now >= current.hangoverUntil) {
+            speaking = false;
+          }
+          if (speaking === current.last) return;
+          current.last = speaking;
+          notifySpeaking(peerRoles[peerId], speaking);
+        }, SPEAKING_POLL_MS);
+      } catch (err) {
+        console.warn("[WebRTC] remote speaking monitor failed", peerId, err);
       }
     }
 
@@ -505,6 +587,7 @@
         audio.remove();
         delete peerAudioEls[peerId];
       }
+      stopRemoteTalk(peerId);
       delete remoteStreams[peerId];
       delete peers[peerId];
       delete pendingCandidates[peerId];
@@ -540,6 +623,7 @@
       if (audio.srcObject !== stream) {
         audio.srcObject = stream;
       }
+      startRemoteTalk(peerId, stream);
 
       console.log(`[WebRTC] Remote track from ${peerId}`, {
         id: track.id,
@@ -784,6 +868,7 @@
     async function handleIncomingSignal(payload) {
       const fromId = payload.from_id;
       if (!fromId || fromId === clientId) return;
+      rememberPeerRole(fromId, payload.role);
 
       const description = payload.description;
       const candidate = payload.candidate;
@@ -912,6 +997,7 @@
 
     function stopVoice() {
       stopSpeakingMonitor();
+      stopAllRemoteTalk();
       socket.emit("voice_leave", {
         game_id: gameId,
         client_id: clientId,
@@ -960,12 +1046,14 @@
     socket.on("peers_list", async (data) => {
       for (const peer of data.peers || []) {
         if (peer.client_id === clientId) continue;
+        rememberPeerRole(peer.client_id, peer.role);
         await connectToPeer(peer.client_id, "peers-list");
       }
     });
 
     socket.on("new_peer_joined", async (data) => {
       if (!data || data.client_id === clientId) return;
+      rememberPeerRole(data.client_id, data.role);
       await connectToPeer(data.client_id, "new-peer");
     });
 

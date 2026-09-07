@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
-    <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
+    <script src="{{ url_for('static', filename='webrtc.js', v='speaking2') }}"></script>
     <script src="{{ url_for('static', filename='recorder.js') }}"></script>
     <script src="{{ url_for('static', filename='endgame.js') }}"></script>
 </head>
@@ -350,6 +350,10 @@
                 statusEl: document.getElementById("voice-status"),
                 muteLabels: { active: "Mute", muted: "Unmute", pending: "Mute" },
                 autoJoin: true,
+                detectRemoteSpeaking: true,
+                onSpeakingChange: ({ role: talkRole, speaking }) => {
+                    setPlayerSpeaking(talkRole, speaking);
+                },
             });
 
             sessionRecorder = createSessionRecorder({
