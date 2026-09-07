@@ -247,11 +247,48 @@ iframe {
     display: flex;
     flex-direction: column;
     align-items: center;
+    border: 2px solid transparent;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .player-box h3 {
     color: #2a6ebd;
     margin-bottom: 10px;
+}
+
+.player-box.is-speaking {
+    border: 2px solid #16a34a;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.28), 0 3px 10px rgba(0, 0, 0, 0.05);
+}
+
+.speaking-badge {
+    display: none;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 0.68em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.player-box.is-speaking .speaking-badge {
+    display: inline-block;
+}
+
+.speaking-status {
+    margin: 0 0 16px;
+    text-align: center;
+    font-size: 0.95em;
+    font-weight: 650;
+    color: #475569;
+}
+
+.speaking-status.is-live {
+    color: #166534;
 }
 
 /* Moderator view-only card grid */

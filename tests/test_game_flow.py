@@ -853,4 +853,38 @@ class TestGameFlow:
         game_state = get_game_state(game_id)
         assert game_state.get('round_number') == 2
 
+    def test_control_status_includes_player_tokens(self, client, reset_globals):
+        """Dashboard status exposes the join tokens of the current player 1 and 2."""
+        self.moderator_login(client)
+        client.post("/moderator/control/open", json={})
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+
+        status = json.loads(client.get("/moderator/control/status").data)
+        assert status["status"] == "ok"
+        assert status["state"] == "IN_PROGRESS"
+        assert status["player1_token"] == tokens[0]
+        assert status["player2_token"] == tokens[1]
+
+    def test_player_tokens_follow_role_swap(self, client, reset_globals):
+        """After swap, player1_token is the person now in the player 1 role."""
+        self.moderator_login(client)
+        client.post("/moderator/control/open", json={})
+
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.post("/moderator/control/start", json={})
+        client.post("/moderator/control/swap_roles", json={})
+
+        status = json.loads(client.get("/moderator/control/status").data)
+        assert status["status"] == "ok"
+        assert status["player1_token"] == tokens[1]
+        assert status["player2_token"] == tokens[0]
+
 

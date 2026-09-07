@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
-    <script src="{{ url_for('static', filename='webrtc.js') }}"></script>
+    <script src="{{ url_for('static', filename='webrtc.js', v='speaking4') }}"></script>
     <script src="{{ url_for('static', filename='recorder.js') }}"></script>
     <script src="{{ url_for('static', filename='endgame.js') }}"></script>
 </head>
@@ -68,6 +68,7 @@
             }
             if (socket.connected) joinRoom();
             else socket.once('connect', joinRoom);
+            socket.io.on('reconnect', joinRoom);
         });
 
         const transcriptDiv = document.getElementById('transcript');
@@ -324,6 +325,7 @@
             socketReady,
             gameId,
             role: 'player2',
+            participantId,
             muteButtonEl: document.getElementById('voice-mute'),
             statusEl: document.getElementById('voice-status'),
             muteLabels: { active: 'Mute', muted: 'Unmute', pending: 'Mute' },
