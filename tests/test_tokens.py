@@ -108,10 +108,14 @@ class TestTokenManagement:
             )
             expires_at = c.fetchone()["expires_at"]
 
-        if hasattr(expires_at, "replace") and getattr(expires_at, "tzinfo", None):
-            expires_at = expires_at.replace(tzinfo=None)
+        def as_naive_seconds(value):
+            if hasattr(value, "tzinfo") and value.tzinfo is not None:
+                value = value.replace(tzinfo=None)
+            return value.replace(microsecond=0)
 
-        expected_min = before + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
-        expected_max = after + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
+        # MariaDB DATETIME has second precision; datetime.now() has microseconds.
+        expires_at = as_naive_seconds(expires_at)
+        expected_min = as_naive_seconds(before) + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
+        expected_max = as_naive_seconds(after) + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
         assert TOKEN_VALIDITY_DAYS == 60
-        assert expected_min <= expires_at <= expected_max + datetime.timedelta(seconds=2)
+        assert expected_min <= expires_at <= expected_max
