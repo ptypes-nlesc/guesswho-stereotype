@@ -2413,10 +2413,9 @@ def moderator_generate_tokens():
     
     # Generate tokens (TOKEN_VALIDITY_DAYS expiration)
     tokens = []
-    created_at = datetime.datetime.now().isoformat()
-    expires_at = (
-        datetime.datetime.now() + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
-    ).isoformat()
+    now = datetime.datetime.now()
+    created_at = now.isoformat()
+    expires_at = (now + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)).isoformat()
     
     with get_db_conn() as conn:
         c = conn.cursor()

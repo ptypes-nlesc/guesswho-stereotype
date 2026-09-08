@@ -91,9 +91,7 @@ class TestTokenManagement:
             sess["moderator"] = True
 
         client.post("/moderator/control/open", json={})
-        before = datetime.datetime.now()
         tokens_res = client.post("/moderator/tokens/generate", json={"count": 1})
-        after = datetime.datetime.now()
         assert tokens_res.status_code == 200
 
         csv_content = tokens_res.data.decode("utf-8")
@@ -103,19 +101,17 @@ class TestTokenManagement:
         with get_db_conn() as conn:
             c = conn.cursor()
             c.execute(
-                "SELECT expires_at FROM access_tokens WHERE token = %s",
+                "SELECT created_at, expires_at FROM access_tokens WHERE token = %s",
                 (token,),
             )
-            expires_at = c.fetchone()["expires_at"]
+            row = c.fetchone()
 
-        def as_naive_seconds(value):
-            if hasattr(value, "tzinfo") and value.tzinfo is not None:
-                value = value.replace(tzinfo=None)
-            return value.replace(microsecond=0)
+        created_at = row["created_at"]
+        expires_at = row["expires_at"]
+        if getattr(created_at, "tzinfo", None):
+            created_at = created_at.replace(tzinfo=None)
+        if getattr(expires_at, "tzinfo", None):
+            expires_at = expires_at.replace(tzinfo=None)
 
-        # MariaDB DATETIME has second precision; datetime.now() has microseconds.
-        expires_at = as_naive_seconds(expires_at)
-        expected_min = as_naive_seconds(before) + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
-        expected_max = as_naive_seconds(after) + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
         assert TOKEN_VALIDITY_DAYS == 60
-        assert expected_min <= expires_at <= expected_max
+        assert expires_at - created_at == datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
