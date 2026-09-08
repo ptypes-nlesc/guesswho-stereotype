@@ -79,3 +79,39 @@ class TestTokenManagement:
         data = json.loads(res.data)
         assert data.get("status") == "ok"
         assert data.get("participant_id") is not None
+
+    def test_generated_tokens_expire_in_60_days(self, client, reset_globals):
+        """Newly generated tokens are valid for 60 days."""
+        from app import TOKEN_VALIDITY_DAYS, get_db_conn
+        import csv
+        import io
+        from urllib.parse import urlparse, parse_qs
+
+        with client.session_transaction() as sess:
+            sess["moderator"] = True
+
+        client.post("/moderator/control/open", json={})
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 1})
+        assert tokens_res.status_code == 200
+
+        csv_content = tokens_res.data.decode("utf-8")
+        url = list(csv.reader(io.StringIO(csv_content)))[1][0]
+        token = parse_qs(urlparse(url).query).get("token", [None])[0]
+
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT created_at, expires_at FROM access_tokens WHERE token = %s",
+                (token,),
+            )
+            row = c.fetchone()
+
+        created_at = row["created_at"]
+        expires_at = row["expires_at"]
+        if getattr(created_at, "tzinfo", None):
+            created_at = created_at.replace(tzinfo=None)
+        if getattr(expires_at, "tzinfo", None):
+            expires_at = expires_at.replace(tzinfo=None)
+
+        assert TOKEN_VALIDITY_DAYS == 60
+        assert expires_at - created_at == datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
