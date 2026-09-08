@@ -497,6 +497,7 @@ GAME_STATES = {
 CURRENT_SESSION_GAME_ID = None  # The active game session
 
 AUDIO_UPLOAD_ROLES = frozenset({"player1", "player2", "moderator"})
+TOKEN_VALIDITY_DAYS = 60
 SPEAKING_ROLES = frozenset({"player1", "player2"})
 
 
@@ -2410,10 +2411,12 @@ def moderator_generate_tokens():
     if not isinstance(count, int) or count < 1 or count > 100:
         return jsonify({"status": "error", "message": "Count must be between 1 and 100"}), 400
     
-    # Generate tokens (30 day expiration)
+    # Generate tokens (TOKEN_VALIDITY_DAYS expiration)
     tokens = []
     created_at = datetime.datetime.now().isoformat()
-    expires_at = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
+    expires_at = (
+        datetime.datetime.now() + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
+    ).isoformat()
     
     with get_db_conn() as conn:
         c = conn.cursor()

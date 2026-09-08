@@ -79,3 +79,39 @@ class TestTokenManagement:
         data = json.loads(res.data)
         assert data.get("status") == "ok"
         assert data.get("participant_id") is not None
+
+    def test_generated_tokens_expire_in_60_days(self, client, reset_globals):
+        """Newly generated tokens are valid for 60 days."""
+        from app import TOKEN_VALIDITY_DAYS, get_db_conn
+        import csv
+        import io
+        from urllib.parse import urlparse, parse_qs
+
+        with client.session_transaction() as sess:
+            sess["moderator"] = True
+
+        client.post("/moderator/control/open", json={})
+        before = datetime.datetime.now()
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 1})
+        after = datetime.datetime.now()
+        assert tokens_res.status_code == 200
+
+        csv_content = tokens_res.data.decode("utf-8")
+        url = list(csv.reader(io.StringIO(csv_content)))[1][0]
+        token = parse_qs(urlparse(url).query).get("token", [None])[0]
+
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT expires_at FROM access_tokens WHERE token = %s",
+                (token,),
+            )
+            expires_at = c.fetchone()["expires_at"]
+
+        if hasattr(expires_at, "replace") and getattr(expires_at, "tzinfo", None):
+            expires_at = expires_at.replace(tzinfo=None)
+
+        expected_min = before + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
+        expected_max = after + datetime.timedelta(days=TOKEN_VALIDITY_DAYS)
+        assert TOKEN_VALIDITY_DAYS == 60
+        assert expected_min <= expires_at <= expected_max + datetime.timedelta(seconds=2)
