@@ -1,6 +1,8 @@
 # Deploy
 
-Apache (TLS) proxies to Gunicorn on `127.0.0.1:8000` (one gevent WebSocket worker). Redis and MariaDB hold live state and durable rows. coturn on UDP/TCP 3478 provides TURN for voice.
+Apache (TLS) proxies to Gunicorn on `127.0.0.1:8000` (one gevent WebSocket worker). Do not bind Gunicorn to `0.0.0.0`. Redis and MariaDB hold live state and durable rows. coturn on UDP/TCP 3478 provides TURN for voice.
+
+Staff session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` (unless `SESSION_COOKIE_SECURE=0`). Cookie-authenticated POSTs require a CSRF token (`X-CSRFToken` or form field `csrf_token`). `/login` and `/join/enter` are rate-limited per IP.
 
 ## Environment
 
@@ -9,6 +11,7 @@ Load from `.env` (or systemd `EnvironmentFile`). Never commit this file.
 | Variable | Purpose |
 |----------|---------|
 | `SECRET_KEY` | Flask sessions (required) |
+| `SESSION_COOKIE_SECURE` | Staff cookie over HTTPS only (default `1`; set `0` for local HTTP) |
 | `MODERATOR_PASSWORD` | Staff login |
 | `AUDITOR_PASSWORD` | Optional read-only staff |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PWD`, `DB_NAME` | MariaDB (or `DATABASE_URL`) |

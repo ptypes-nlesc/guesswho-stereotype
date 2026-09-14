@@ -3,8 +3,10 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Wetenschappelijk spel – Xposed</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='csrf.js') }}"></script>
     <style>
         .waiting-container {
             max-width: 600px;
@@ -276,9 +278,9 @@
             try {
                 const res = await fetch('/join/enter', { 
                     method: 'POST',
-                    headers: {
+                    headers: csrfHeaders({
                         'Content-Type': 'application/json'
-                    },
+                    }),
                     body: JSON.stringify({ token: TOKEN })
                 });
                 const data = await res.json();

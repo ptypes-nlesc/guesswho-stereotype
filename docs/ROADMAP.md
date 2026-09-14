@@ -45,7 +45,7 @@ Each browser records **its own microphone** (not remote WebRTC audio).
 - [x] HTTPS reverse proxy (ProxyFix)
 - [x] Staff passwords from the environment
 - [x] MkDocs + pytest
-- [x] Stronger input validation (player/transcript/eliminate auth; chat XSS; Socket.IO binding; remaining: CSRF/TURN)
+- [x] Stronger input validation (player/transcript/eliminate auth; chat XSS; Socket.IO binding; CSRF/cookies/headers; remaining: TURN/uploads)
 - [ ] Stronger reconnect recovery (game and voice)
 
 ## Phase 5 – Research tooling
