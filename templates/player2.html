@@ -3,9 +3,11 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Speler 2 – Rader</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='csrf.js') }}"></script>
     <script src="{{ url_for('static', filename='mic-check.js') }}"></script>
     <script src="{{ url_for('static', filename='dom-safe.js') }}"></script>
     <script src="{{ url_for('static', filename='webrtc.js', v='speaking4') }}"></script>
@@ -292,7 +294,7 @@
 
             fetch('/eliminate_card', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: csrfHeaders({'Content-Type': 'application/json'}),
                 body: JSON.stringify({game_id: gameId, card_id: cardId, participant_id: participantId})
             })
             .then(response => response.json())

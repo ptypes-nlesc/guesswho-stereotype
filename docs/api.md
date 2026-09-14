@@ -7,8 +7,9 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 ### Session
 
 - `GET /` — staff login
-- `POST /login` — `password`, optional `role` (`moderator` or `auditor`)
-- `GET /logout`
+- `POST /login` — `password`, optional `role` (`moderator` or `auditor`); CSRF token required; rate-limited per IP
+- `POST /logout` — preferred; `GET /logout` still clears the session
+- Cookie-authenticated POSTs send `X-CSRFToken` or form `csrf_token`
 - `GET /game/status` — query `game_id`; staff session **or** bound `participant_id`
 
 ### Participants

@@ -77,6 +77,7 @@
         {% endif %}
 
         <form method="POST" action="/login">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label for="role" style="display:block; text-align:left; margin-bottom:8px; font-size:14px;">Role</label>
             <select id="role" name="role" style="width:100%; padding:10px; margin-bottom:15px; border:1px solid #ccc; border-radius:6px; font-size:14px;">
                 <option value="moderator" {% if selected_role|default('moderator') == 'moderator' %}selected{% endif %}>Moderator</option>

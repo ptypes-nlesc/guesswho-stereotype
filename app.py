@@ -5,9 +5,11 @@ import json
 import os
 import random
 import secrets
+import threading
 import pymysql
 import time
 import uuid
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from urllib.parse import unquote, urlparse
 from dotenv import load_dotenv
@@ -23,6 +25,7 @@ from flask import (
     url_for,
 )
 from flask_socketio import SocketIO, join_room
+from flask_wtf.csrf import CSRFError, CSRFProtect
 import redis
 
 from auth import (
@@ -120,12 +123,30 @@ AUDIO_STORAGE_DIR = os.path.abspath(
 # Cap per-request body (multipart stem + form fields). Override via env if needed.
 _AUDIO_MAX_UPLOAD_MB = _int_or_default(env_first("AUDIO_MAX_UPLOAD_MB", default="200"), 200)
 
+_IS_TESTING = os.getenv("TESTING") == "1"
+_cookie_secure_raw = env_first("SESSION_COOKIE_SECURE")
+if _IS_TESTING:
+    _cookie_secure = False
+elif _cookie_secure_raw is None:
+    _cookie_secure = True
+else:
+    _cookie_secure = _cookie_secure_raw.strip().lower() in ("1", "true", "yes", "on")
+
 app.config.update(
     SECRET_KEY=SECRET_KEY,
     APP_NAME=env_first("APP_NAME", default="guesswho-stereotype"),
     TEMPLATES_AUTO_RELOAD=True,
     MAX_CONTENT_LENGTH=_AUDIO_MAX_UPLOAD_MB * 1024 * 1024,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=_cookie_secure,
+    WTF_CSRF_ENABLED=not _IS_TESTING,
+    WTF_CSRF_TIME_LIMIT=None,
+    WTF_CSRF_SSL_STRICT=_cookie_secure,
+    WTF_CSRF_CHECK_DEFAULT=True,
 )
+
+csrf = CSRFProtect(app)
 
 
 def _socketio_cors_origins():
@@ -1056,6 +1077,58 @@ def record_event(role, action, game_id, text=None, card=None, participant_id=Non
 # ---------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------
+_rate_hits = defaultdict(deque)
+_rate_lock = threading.Lock()
+LOGIN_RATE_LIMIT = 8
+LOGIN_RATE_WINDOW_SECONDS = 15 * 60
+JOIN_RATE_LIMIT = 40
+JOIN_RATE_WINDOW_SECONDS = 15 * 60
+
+
+def _client_ip():
+    return request.remote_addr or "unknown"
+
+
+def too_many_attempts(bucket, limit, window_seconds):
+    """Return True when this IP has exceeded the window. Tests skip the limit."""
+    if IS_TESTING:
+        return False
+    key = f"{bucket}:{_client_ip()}"
+    now = time.monotonic()
+    with _rate_lock:
+        hits = _rate_hits[key]
+        while hits and now - hits[0] > window_seconds:
+            hits.popleft()
+        if len(hits) >= limit:
+            return True
+        hits.append(now)
+        return False
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), geolocation=(), microphone=(self)",
+    )
+    return response
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(error):
+    wants_json = (
+        request.is_json
+        or request.headers.get("X-CSRFToken")
+        or request.path.startswith(("/moderator/", "/join/", "/audio/", "/eliminate_card"))
+    )
+    if wants_json:
+        return jsonify({"status": "error", "message": "CSRF token missing or invalid"}), 400
+    return render_template("index.html", error=True), 400
+
+
 @app.route("/")
 def index():
     """Moderator login page."""
@@ -1070,15 +1143,23 @@ def login():
     if role not in (ROLE_MODERATOR, ROLE_AUDITOR):
         role = ROLE_MODERATOR
 
+    if too_many_attempts("login", LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SECONDS):
+        return render_template("index.html", error=True, selected_role=role), 429
+
     if authenticate_staff(role, password, MODERATOR_PASSWORD, AUDITOR_PASSWORD):
+        session.clear()
         set_staff_session(role)
         return redirect(url_for("dashboard"))
     return render_template("index.html", error=True, selected_role=role)
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
-    """Clear session and return to login."""
+    """Clear session and return to login. POST is preferred; GET kept for bookmarks."""
+    if request.method == "GET":
+        # Lax cookies are not sent on cross-site subresources; GET is still
+        # clickable. Dashboard uses POST.
+        pass
     clear_staff_session()
     session.clear()
     return redirect(url_for("index"))
@@ -1470,6 +1551,9 @@ def join_status():
 @app.route("/join/enter", methods=["POST"])
 def join_enter():
     """Participant attempts to enter the waiting room using a token."""
+    if too_many_attempts("join", JOIN_RATE_LIMIT, JOIN_RATE_WINDOW_SECONDS):
+        return jsonify({"status": "error", "message": "Too many attempts"}), 429
+
     data = request.get_json() or {}
     token = data.get("token")
     
@@ -2829,7 +2913,7 @@ if __name__ == "__main__":
     
     socketio.run(
         app,
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=app_port,
         debug=debug_mode,
         use_reloader=debug_mode

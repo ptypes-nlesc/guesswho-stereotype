@@ -3,8 +3,10 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Moderator Dashboard – Spelbediening</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='csrf.js') }}"></script>
     <style>
         .control-panel {
             max-width: 920px;
@@ -570,7 +572,8 @@
 
         <div class="footer">
             <p>Je bent ingelogd als <strong>{{ 'Auditor (alleen-lezen)' if staff_role == 'auditor' else 'Moderator' }}</strong>.</p>
-            <form action="/logout" method="get" style="display: inline;">
+            <form action="/logout" method="post" style="display: inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit">🔒 Uitloggen</button>
             </form>
         </div>
@@ -581,6 +584,18 @@
         let currentState = null;
         let currentGameId = null;
         let feedbackTimer = null;
+
+        function postControl(url, body) {
+            const opts = {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: csrfHeaders(body ? {'Content-Type': 'application/json'} : {}),
+            };
+            if (body !== undefined) {
+                opts.body = JSON.stringify(body);
+            }
+            return fetch(url, opts);
+        }
 
         function showFeedback(message, kind) {
             const el = document.getElementById('action-feedback');
@@ -805,7 +820,7 @@
         if (staffRole !== 'auditor') {
         document.getElementById('btn-open').onclick = async () => {
             try {
-                const res = await fetch('/moderator/control/open', { method: 'POST' });
+                const res = await postControl('/moderator/control/open');
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showFeedback('Toegang geopend.', 'ok');
@@ -824,7 +839,7 @@
                 return;
             }
             try {
-                const res = await fetch('/moderator/control/start', { method: 'POST' });
+                const res = await postControl('/moderator/control/start');
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showFeedback('Spel gestart.', 'ok');
@@ -840,7 +855,7 @@
 
         document.getElementById('btn-swap').onclick = async () => {
             try {
-                const res = await fetch('/moderator/control/swap_roles', { method: 'POST' });
+                const res = await postControl('/moderator/control/swap_roles');
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showFeedback('Rollen gewisseld — ronde 2 gestart.', 'ok');
@@ -855,7 +870,7 @@
 
         document.getElementById('btn-record-start').onclick = async () => {
             try {
-                const res = await fetch('/moderator/control/recording/start', { method: 'POST' });
+                const res = await postControl('/moderator/control/recording/start');
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showFeedback('Opname gestart.', 'ok');
@@ -870,7 +885,7 @@
 
         document.getElementById('btn-record-stop').onclick = async () => {
             try {
-                const res = await fetch('/moderator/control/recording/stop', { method: 'POST' });
+                const res = await postControl('/moderator/control/recording/stop');
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showFeedback('Opname gestopt.', 'ok');
@@ -885,7 +900,7 @@
 
         document.getElementById('btn-end').onclick = async () => {
             try {
-                const res = await fetch('/moderator/control/end', { method: 'POST' });
+                const res = await postControl('/moderator/control/end');
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showFeedback('Spel beëindigd.', 'ok');
@@ -907,13 +922,7 @@
             }
 
             try {
-                const res = await fetch('/moderator/tokens/generate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ count: count })
-                });
+                const res = await postControl('/moderator/tokens/generate', { count: count });
 
                 if (res.ok) {
                     const blob = await res.blob();

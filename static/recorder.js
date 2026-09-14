@@ -272,10 +272,16 @@
           // Do NOT set keepalive: browsers cap keepalive bodies at ~64KB;
           // research stems are often 0.5–several MB and would fail silently.
           // Navigation is delayed via waitForIdle() instead.
+          const token =
+            typeof csrfToken === "function" ? csrfToken() : "";
+          if (token) {
+            form.append("csrf_token", token);
+          }
           const res = await fetch("/audio/upload", {
             method: "POST",
             body: form,
             credentials: "same-origin",
+            headers: token ? { "X-CSRFToken": token } : {},
           });
           let data = null;
           try {
