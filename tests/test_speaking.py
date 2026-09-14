@@ -156,6 +156,10 @@ class TestSpeakingRelay:
         game_id = json.loads(open_res.data)["game_id"]
         flask_mod.get("/logout")
 
+        from tests.conftest import bind_test_participants
+
+        bind_test_participants(game_id)
+
         flask_aud = app.test_client()
         login_res = flask_aud.post(
             "/login",

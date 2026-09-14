@@ -55,11 +55,13 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 
 ## Socket.IO
 
+Players must send the bound `participant_id`. Staff events (`role: moderator` / `auditor`) need a staff session. The server does not create role bindings from a claimed socket role. Chat `text` is required and capped at 2000 characters. Browser origins are `APP_URL` plus optional `SOCKETIO_CORS_ORIGINS` (loopback is allowed in tests / when `APP_URL` is unset).
+
 **Client → server:** `join`, `chat`, `voice_join`, `webrtc_signal`, `speaking`
 
 **Server → client (selected):** `system`, `chat`, `peers_list`, `new_peer_joined`, `webrtc_signal`, `card_eliminated`, `eliminate`, `round_complete`, `roles_swapped`, `game_ended`, `speaking`
 
-- `speaking` (client → server, player1/player2 only) — `{game_id, role, speaking}` plus optional `participant_id`. Relayed to the moderator and auditor rooms only. Not stored.
+- `speaking` (client → server, player1/player2 only) — `{game_id, role, participant_id, speaking}`. Relayed to the moderator and auditor rooms only. Not stored.
 - `speaking` (server → staff) — `{game_id, role, speaking}` for live “who is talking” on the observer view.
 
 - `recording_start` / `recording_stop` — `{game_id, recording_id, server_ts}`
