@@ -94,28 +94,51 @@ class TestRoleBinding:
         assert res.status_code == 200
         assert b"static/cards/" in res.data
 
-    def test_role_binding_enforced_on_socket_io(self, socketio_client, reset_globals):
-        """Test that Socket.IO rejects wrong role/participant_id combo."""
+    def test_role_binding_enforced_on_socket_io(self, socketio_client, reset_globals, create_test_game):
+        """Socket.IO rejects missing ids, unknown ids, and role mismatches."""
         game_id = "test-game-bind"
         player1_id = "player-1-uuid"
-        player2_id = "player-2-uuid"
-        
-        # Player 1 joins with correct role
-        result = socketio_client.emit('join', {
-            'game_id': game_id,
-            'role': 'player1',
-            'participant_id': player1_id
-        }, skip_sid=True)
-        
-        # Player 1 tries to emit as player2 → should be rejected by validate_role_binding
-        # Note: validate_role_binding is lenient for backward compat in some cases
-        # but will track the mismatch
-        from app import get_participant_role
-        
-        # Emit with mismatched role should still be accepted by validate_role_binding
-        # but let's verify the role was bound correctly on first join
-        bound_role = get_participant_role(game_id, player1_id)
-        assert bound_role == 'player1'
+        create_test_game(game_id)
+
+        missing = socketio_client.emit(
+            "join",
+            {"game_id": game_id, "role": "player1"},
+            callback=True,
+        )
+        assert missing.get("status") == "error"
+
+        unknown = socketio_client.emit(
+            "join",
+            {
+                "game_id": game_id,
+                "role": "player1",
+                "participant_id": "not-a-player",
+            },
+            callback=True,
+        )
+        assert unknown.get("status") == "error"
+
+        mismatch = socketio_client.emit(
+            "join",
+            {
+                "game_id": game_id,
+                "role": "player2",
+                "participant_id": player1_id,
+            },
+            callback=True,
+        )
+        assert mismatch.get("status") == "error"
+
+        ok = socketio_client.emit(
+            "join",
+            {
+                "game_id": game_id,
+                "role": "player1",
+                "participant_id": player1_id,
+            },
+            callback=True,
+        )
+        assert ok.get("status") == "ok"
 
     def test_role_binding_multiple_games(self, client, reset_globals):
         """Test role bindings isolated per game - each game has independent role assignment."""

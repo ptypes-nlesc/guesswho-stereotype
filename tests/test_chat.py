@@ -176,18 +176,17 @@ class TestChat:
             'participant_id': player1_id
         })
         
-        # Send chat without text
-        socketio_client.emit('chat', {
+        result = socketio_client.emit('chat', {
             'game_id': game_id,
             'role': 'player1',
             'participant_id': player1_id,
             'text': None
-        })
-        
-        # Empty text should still be logged (for research purposes)
+        }, callback=True)
+
+        assert result.get('status') == 'error'
         from app import get_chat_history
         chat_history = get_chat_history(game_id)
-        assert len(chat_history) > 0
+        assert chat_history == []
 
     def test_chat_without_game_id(self, socketio_client, reset_globals, create_test_game):
         """Test chat without game_id returns error."""

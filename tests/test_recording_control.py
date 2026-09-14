@@ -117,12 +117,17 @@ class TestRecordingControl:
     def test_recording_start_emits_socket_event(
         self, client, socketio_client, reset_globals
     ):
-        game_id = self._start_game_in_progress(client)
+        from app import get_game_state
 
-        socketio_client.emit(
+        game_id = self._start_game_in_progress(client)
+        p1 = get_game_state(game_id)["player1_id"]
+
+        join_ack = socketio_client.emit(
             "join",
-            {"game_id": game_id, "role": "player1", "participant_id": "test-participant"},
+            {"game_id": game_id, "role": "player1", "participant_id": p1},
+            callback=True,
         )
+        assert join_ack.get("status") == "ok"
         socketio_client.get_received()
 
         res = client.post("/moderator/control/recording/start", json={})
@@ -144,12 +149,17 @@ class TestRecordingControl:
     def test_end_game_emits_game_ended_socket(
         self, client, socketio_client, reset_globals
     ):
-        game_id = self._start_game_in_progress(client)
+        from app import get_game_state
 
-        socketio_client.emit(
+        game_id = self._start_game_in_progress(client)
+        p1 = get_game_state(game_id)["player1_id"]
+
+        join_ack = socketio_client.emit(
             "join",
-            {"game_id": game_id, "role": "player1", "participant_id": "test-participant"},
+            {"game_id": game_id, "role": "player1", "participant_id": p1},
+            callback=True,
         )
+        assert join_ack.get("status") == "ok"
         socketio_client.get_received()
 
         client.post("/moderator/control/end", json={})

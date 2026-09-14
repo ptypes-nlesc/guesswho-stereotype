@@ -173,12 +173,20 @@ def socketio_client(test_db):
     yield client
     client.disconnect()
 
+def bind_test_participants(game_id, p1="player-1-uuid", p2="player-2-uuid"):
+    """Insert round-1 player bindings used by Socket.IO tests."""
+    import app as app_module
+
+    app_module.set_participant_binding(game_id, p1, "player1", round_number=1)
+    app_module.set_participant_binding(game_id, p2, "player2", round_number=1)
+
+
 @pytest.fixture
 def create_test_game():
     """Helper to create a game record in the database for testing."""
     import app as app_module
     
-    def _create_game(game_id, chosen_card=None):
+    def _create_game(game_id, chosen_card=None, bind_default_players=True):
         """Insert a game record into games and a round 1 card into rounds."""
         if chosen_card is None:
             chosen_card = 1
@@ -196,6 +204,8 @@ def create_test_game():
                 """,
                 (game_id, 1, chosen_card)
             )
+        if bind_default_players:
+            bind_test_participants(game_id)
         return game_id
     
     return _create_game

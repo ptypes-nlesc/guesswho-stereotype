@@ -126,7 +126,39 @@ app.config.update(
     TEMPLATES_AUTO_RELOAD=True,
     MAX_CONTENT_LENGTH=_AUDIO_MAX_UPLOAD_MB * 1024 * 1024,
 )
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
+
+
+def _socketio_cors_origins():
+    """Origins allowed to open a Socket.IO connection.
+
+    Production: APP_URL (and optional SOCKETIO_CORS_ORIGINS). Tests and local
+    runs without APP_URL keep loopback so pytest and gunicorn on localhost work.
+    """
+    origins = []
+    app_url = env_first("APP_URL")
+    if app_url:
+        if "://" not in app_url:
+            app_url = f"https://{app_url}"
+        origins.append(app_url.rstrip("/"))
+    extra = env_first("SOCKETIO_CORS_ORIGINS")
+    if extra:
+        for part in extra.split(","):
+            origin = part.strip().rstrip("/")
+            if origin and origin not in origins:
+                origins.append(origin)
+    if os.getenv("TESTING") == "1" or not origins:
+        for local in (
+            "http://127.0.0.1:5000",
+            "http://localhost:5000",
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+        ):
+            if local not in origins:
+                origins.append(local)
+    return origins
+
+
+socketio = SocketIO(app, cors_allowed_origins=_socketio_cors_origins(), async_mode="gevent")
 
 DB_CONFIG = _db_config_from_env()
 
@@ -498,7 +530,9 @@ CURRENT_SESSION_GAME_ID = None  # The active game session
 
 AUDIO_UPLOAD_ROLES = frozenset({"player1", "player2", "moderator"})
 TOKEN_VALIDITY_DAYS = 60
+CHAT_MAX_LENGTH = 2000
 SPEAKING_ROLES = frozenset({"player1", "player2"})
+PLAYER_SOCKET_ROLES = frozenset({"player1", "player2"})
 
 
 def _ensure_audio_events_schema(cursor):
@@ -2421,12 +2455,17 @@ def moderator_generate_tokens():
 # Helper to validate role binding on socket events
 def validate_role_binding(game_id, participant_id, claimed_role):
     """
-    Enforce role binding: verify that participant_id matches the claimed role.
-    Returns (valid: bool, error_msg: str or None)
+    Enforce role binding from the database (or a staff Flask session).
+    Never creates a binding. Returns (valid: bool, error_msg: str or None).
     """
+    if not game_id:
+        return False, "game_id required"
+
     if claimed_role == "moderator":
         if not is_moderator():
             return False, "Unauthorized"
+        if not can_view_game(game_id, get_current_session_game_id):
+            return False, "Cannot observe this session"
         return True, None
 
     if claimed_role == "auditor":
@@ -2436,14 +2475,10 @@ def validate_role_binding(game_id, participant_id, claimed_role):
             return False, "Cannot observe this session"
         return True, None
 
-    if not participant_id:
-        return True, None  # No participant_id provided — allow (backward compat)
-    
-    bound_role = get_participant_role(game_id, participant_id)
-    if bound_role and bound_role != claimed_role:
-        return False, f"Role mismatch: participant bound to {bound_role}, not {claimed_role}"
-    
-    return True, None
+    if claimed_role not in PLAYER_SOCKET_ROLES:
+        return False, "Invalid role"
+
+    return check_role_binding(game_id, participant_id, claimed_role)
 
 
 # ---------------------------------------------------------------------
@@ -2462,18 +2497,13 @@ def handle_join(data):
     valid, error = validate_role_binding(game_id, participant_id, role)
     if not valid:
         return {"status": "error", "message": error}
-    
+
     room = f"game:{game_id}"
     role_room = f"game:{game_id}:{role}"
-    
-    # Bind participant_id to role for this game
+
     if actor_participant_id:
         set_participant_role(game_id, actor_participant_id, role)
-        try:
-            set_participant_binding(game_id, actor_participant_id, role)
-        except Exception as e:
-            print(f"Socket join: DB role binding skipped for game {game_id}: {e}")
-    
+
     join_room(room)
     join_room(role_room)
     record_event(role, "join", game_id, text=role, participant_id=actor_participant_id)
@@ -2507,28 +2537,31 @@ def handle_chat(data):
         return {"status": "error", "message": "Read-only"}
     actor_participant_id = participant_id if role != "moderator" else None
     text = data.get("text", "")
-    
+
     if not game_id:
         return {"status": "error", "message": "game_id required"}
-    
-    # Validate role binding
+
     valid, error = validate_role_binding(game_id, participant_id, role)
     if not valid:
         return {"status": "error", "message": error}
-    
-    # Bind participant_id to role for this game
+
+    if not isinstance(text, str):
+        return {"status": "error", "message": "text required"}
+    text = text.strip()
+    if not text:
+        return {"status": "error", "message": "text required"}
+    if len(text) > CHAT_MAX_LENGTH:
+        return {"status": "error", "message": "text too long"}
+
     if actor_participant_id:
         set_participant_role(game_id, actor_participant_id, role)
-        try:
-            set_participant_binding(game_id, actor_participant_id, role)
-        except Exception as e:
-            print(f"Socket chat: DB role binding skipped for game {game_id}: {e}")
-    
+
     record_event(role, "chat", game_id, text=text, participant_id=actor_participant_id)
     socketio.emit(
         "chat", {"role": role, "text": text, "game_id": game_id}, to=f"game:{game_id}"
     )
     print(f"💬 {role}@{game_id}: {text}")
+    return {"status": "ok"}
 
 
 @socketio.on("speaking")
@@ -2537,12 +2570,16 @@ def handle_speaking(data):
     data = data or {}
     game_id = data.get("game_id")
     role = data.get("role")
+    participant_id = data.get("participant_id")
     speaking = bool(data.get("speaking"))
 
     if not game_id:
         return {"status": "error", "message": "game_id required"}
     if role not in SPEAKING_ROLES:
         return {"status": "error", "message": "Only player1 and player2 report speaking"}
+    valid, error = validate_role_binding(game_id, participant_id, role)
+    if not valid:
+        return {"status": "error", "message": error}
 
     payload = {
         "game_id": game_id,
@@ -2579,13 +2616,8 @@ def handle_voice_join(data):
     if not valid:
         return {"status": "error", "message": error}
 
-    # Bind participant_id to role for this game
     if actor_participant_id:
         set_participant_role(game_id, actor_participant_id, role)
-        try:
-            set_participant_binding(game_id, actor_participant_id, role)
-        except Exception as e:
-            print(f"Socket voice_join: DB role binding skipped for game {game_id}: {e}")
 
     prune_stale_voice_participants(game_id)
 
@@ -2613,12 +2645,11 @@ def handle_voice_join(data):
 @socketio.on("voice_leave")
 def handle_voice_leave(data):
     """Participant leaves the voice mesh for a game."""
-    game_id = data.get("game_id")
-    client_id = data.get("client_id")
-    role = data.get("role", "unknown")
-
-    if not game_id or not client_id:
-        return {"status": "error", "message": "game_id and client_id required"}
+    mapping = VOICE_SOCKET_INDEX.get(request.sid)
+    if not mapping:
+        return {"status": "error", "message": "not in voice"}
+    game_id, client_id = mapping
+    role = (data or {}).get("role", "unknown")
 
     remove_voice_participant(game_id, client_id)
     VOICE_SOCKET_INDEX.pop(request.sid, None)
@@ -2665,14 +2696,9 @@ def handle_webrtc_signal(data):
     valid, error = validate_role_binding(game_id, participant_id, role)
     if not valid:
         return {"status": "error", "message": error}
-    
-    # Bind participant_id to role for this game
+
     if actor_participant_id:
         set_participant_role(game_id, actor_participant_id, role)
-        try:
-            set_participant_binding(game_id, actor_participant_id, role)
-        except Exception as e:
-            print(f"Socket webrtc_signal: DB role binding skipped for game {game_id}: {e}")
 
     payload = {
         "game_id": game_id,

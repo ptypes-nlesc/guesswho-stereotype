@@ -14,7 +14,8 @@ Load from `.env` (or systemd `EnvironmentFile`). Never commit this file.
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PWD`, `DB_NAME` | MariaDB (or `DATABASE_URL`) |
 | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_DB` | Live state |
 | `APP_PORT` | Gunicorn bind port (often `8000`) |
-| `APP_URL` | Public hostname for token links |
+| `APP_URL` | Public hostname for token links and Socket.IO CORS |
+| `SOCKETIO_CORS_ORIGINS` | Optional extra CORS origins (comma-separated) |
 | `AUDIO_STORAGE_DIR` | **Filesystem** directory for stems |
 | `TURN_SERVER`, `TURN_PORT`, `TURN_SECRET` | coturn (`static-auth-secret`) |
 
