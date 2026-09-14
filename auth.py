@@ -1,5 +1,7 @@
 """Staff authentication and authorization helpers."""
 
+import hmac
+
 from flask import session
 
 ROLE_MODERATOR = "moderator"
@@ -40,9 +42,9 @@ def clear_staff_session():
 def authenticate_staff(role, password, moderator_password, auditor_password):
     """Validate staff credentials. Returns True when login should succeed."""
     if role == ROLE_MODERATOR:
-        return bool(moderator_password) and password == moderator_password
+        return bool(moderator_password) and hmac.compare_digest(password, moderator_password)
     if role == ROLE_AUDITOR:
-        return bool(auditor_password) and password == auditor_password
+        return bool(auditor_password) and hmac.compare_digest(password, auditor_password)
     return False
 
 

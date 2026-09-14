@@ -559,10 +559,12 @@
           return { ok: true, reason: "already_recording" };
         }
         try {
-          const res = await fetch(
-            `/game/status?game_id=${encodeURIComponent(gameId)}`,
-            { credentials: "same-origin", cache: "no-store" }
-          );
+          const statusParams = new URLSearchParams({ game_id: gameId });
+          if (participantId) statusParams.set("participant_id", participantId);
+          const res = await fetch(`/game/status?${statusParams}`, {
+            credentials: "same-origin",
+            cache: "no-store",
+          });
           if (!res.ok) {
             throw new Error(`status HTTP ${res.status}`);
           }
