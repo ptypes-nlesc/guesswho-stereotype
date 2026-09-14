@@ -414,7 +414,8 @@ class TestGameFlow:
         tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
         tokens = self.extract_tokens_from_csv(tokens_res.data)
 
-        client.post("/join/enter", json={"token": tokens[0]})
+        res1 = client.post("/join/enter", json={"token": tokens[0]})
+        p1_id = json.loads(res1.data)["participant_id"]
         client.post("/join/enter", json={"token": tokens[1]})
         client.post("/moderator/control/start", json={})
 
@@ -426,7 +427,9 @@ class TestGameFlow:
         assert any(entry.get("action") == "eliminate" and entry.get("card") == 4 for entry in moderator_entries)
 
         with flask_app.test_client() as participant_client:
-            participant_transcript = participant_client.get(f"/transcript?game_id={game_id}&limit=200")
+            participant_transcript = participant_client.get(
+                f"/transcript?game_id={game_id}&participant_id={p1_id}&limit=200"
+            )
             participant_entries = json.loads(participant_transcript.data)
 
         assert not any(entry.get("action") == "eliminate" for entry in participant_entries)
@@ -442,7 +445,8 @@ class TestGameFlow:
         tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
         tokens = self.extract_tokens_from_csv(tokens_res.data)
 
-        client.post("/join/enter", json={"token": tokens[0]})
+        res1 = client.post("/join/enter", json={"token": tokens[0]})
+        p1_id = json.loads(res1.data)["participant_id"]
         client.post("/join/enter", json={"token": tokens[1]})
         client.post("/moderator/control/start", json={})
 
@@ -458,7 +462,9 @@ class TestGameFlow:
         )
 
         with flask_app.test_client() as participant_client:
-            participant_transcript = participant_client.get(f"/transcript?game_id={game_id}&limit=200")
+            participant_transcript = participant_client.get(
+                f"/transcript?game_id={game_id}&participant_id={p1_id}&limit=200"
+            )
             participant_entries = json.loads(participant_transcript.data)
 
         assert any(
@@ -477,7 +483,8 @@ class TestGameFlow:
         tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
         tokens = self.extract_tokens_from_csv(tokens_res.data)
 
-        client.post("/join/enter", json={"token": tokens[0]})
+        res1 = client.post("/join/enter", json={"token": tokens[0]})
+        p1_id = json.loads(res1.data)["participant_id"]
         client.post("/join/enter", json={"token": tokens[1]})
         client.post("/moderator/control/start", json={})
         client.post("/moderator/control/swap_roles", json={})
@@ -494,7 +501,9 @@ class TestGameFlow:
         )
 
         with flask_app.test_client() as participant_client:
-            participant_transcript = participant_client.get(f"/transcript?game_id={game_id}&limit=200")
+            participant_transcript = participant_client.get(
+                f"/transcript?game_id={game_id}&participant_id={p1_id}&limit=200"
+            )
             participant_entries = json.loads(participant_transcript.data)
 
         assert any(

@@ -247,11 +247,11 @@
                     `;
                     joinBtn.style.display = 'none';
                 } else {
-                    display.innerHTML = `
-                        <div class="status-message status-closed">
-                            ❓ ${data.message || 'Unknown status'}
-                        </div>
-                    `;
+                    display.replaceChildren();
+                    const unknownBox = document.createElement('div');
+                    unknownBox.className = 'status-message status-closed';
+                    unknownBox.textContent = '❓ ' + (data.message || 'Unknown status');
+                    display.appendChild(unknownBox);
                     joinBtn.style.display = 'none';
                 }
             } catch (err) {

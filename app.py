@@ -1117,36 +1117,32 @@ def set_participant_binding(game_id, participant_id, role, round_number=None):
 def check_role_binding(game_id, participant_id, required_role):
     """
     Enforce role binding: verify participant_id is bound to required_role.
-    Source of truth is the database. Creates binding on first route access.
+    Source of truth is the database. Never creates a binding from a request.
     Returns (allowed: bool, message: str or None)
     """
     if not participant_id:
-        return True, None  # No participant_id — allow (backward compat)
-    
-    # Check DB for existing binding first
+        return False, "participant_id required"
+
     bound_role = get_participant_binding(game_id, participant_id)
-    
-    if bound_role:
-        # Binding exists - allow access if roles match (even if session is closed)
-        if bound_role != required_role:
-            return False, f"Forbidden: participant is bound to {bound_role}, not {required_role}"
-        return True, None
-    
-    # No binding exists yet - only allow if session is active
-    # For non-moderator roles, verify game belongs to current session
-    if required_role != "moderator":
-        current_game_id = get_current_session_game_id()
-        if not current_game_id or game_id != current_game_id:
-            return False, "This game session is no longer active"
-    else:
-        # For moderators, verify game_id matches their session
-        moderator_game_id = session.get('moderator_session_game_id')
-        if not moderator_game_id or game_id != moderator_game_id:
-            return False, "This game session is no longer active"
-    
-    # First access during active session: create binding in DB
-    set_participant_binding(game_id, participant_id, required_role)
+    if not bound_role:
+        return False, "Forbidden: participant is not bound to this game"
+    if bound_role != required_role:
+        return False, f"Forbidden: participant is bound to {bound_role}, not {required_role}"
     return True, None
+
+
+def is_bound_participant(game_id, participant_id):
+    """True when participant_id has a role binding for this game."""
+    if not game_id or not participant_id:
+        return False
+    return get_participant_binding(game_id, participant_id) is not None
+
+
+def can_access_game_data(game_id, participant_id=None):
+    """Staff (auditor scoped to live session) or a bound participant of this game."""
+    if is_staff() and can_view_game(game_id, get_current_session_game_id):
+        return True
+    return is_bound_participant(game_id, participant_id)
 
 
 @app.route("/dashboard")
@@ -1173,19 +1169,16 @@ def player1():
     """Player 1 – secret card view."""
     game_id = request.args.get("game_id")
     participant_id = request.args.get("participant_id")
-    
+
     if not game_id:
         return "Missing game_id parameter", 400
-    
-    # Enforce role binding
+    if not participant_id:
+        return "Missing participant_id parameter", 400
+
     allowed, message = check_role_binding(game_id, participant_id, "player1")
     if not allowed:
-        # Still render the page so they see the notification on screen
-        chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
-        return render_template(
-            "player1.html", card={"id": chosen, "name": f"Card {chosen}"}, game_id=game_id
-        )
-    
+        return message or "Forbidden", 403
+
     chosen = get_chosen_card(game_id) or random.choice(CARDS)["id"]
     return render_template(
         "player1.html", card={"id": chosen, "name": f"Card {chosen}"}, game_id=game_id
@@ -1197,19 +1190,16 @@ def player2():
     """Player 2 – guesser grid view."""
     game_id = request.args.get("game_id")
     participant_id = request.args.get("participant_id")
-    
+
     if not game_id:
         return "Missing game_id parameter", 400
-    
-    # Enforce role binding
+    if not participant_id:
+        return "Missing participant_id parameter", 400
+
     allowed, message = check_role_binding(game_id, participant_id, "player2")
     if not allowed:
-        # Still render the page so they see the notification on screen
-        eliminated = get_eliminated_cards(game_id)
-        return render_template(
-            "player2.html", cards=CARDS, eliminated=eliminated, game_id=game_id
-        )
-    
+        return message or "Forbidden", 403
+
     eliminated = get_eliminated_cards(game_id)
     return render_template(
         "player2.html", cards=CARDS, eliminated=eliminated, game_id=game_id
@@ -1243,68 +1233,32 @@ def moderator():
     )
 
 
-@app.route("/create_game", methods=["POST"])
-def create_game():
-    """Create a new game and return its ID with participant_ids for players."""
-    game_id = uuid.uuid4().hex
-    chosen_card = random.choice(CARDS)["id"]
-    
-    # Generate unique participant_ids for each role
-    player1_id = str(uuid.uuid4())
-    player2_id = str(uuid.uuid4())
-
-    with get_db_conn() as conn:
-        c = conn.cursor()
-        # Insert game record
-        c.execute(
-            "INSERT INTO games (id, created_at) VALUES (%s, %s)",
-            (game_id, datetime.datetime.now().isoformat()),
-        )
-        # Insert participants
-        for participant_id in [player1_id, player2_id]:
-            c.execute(
-                "INSERT INTO participants (id, created_at) VALUES (%s, %s)",
-                (participant_id, datetime.datetime.now().isoformat()),
-            )
-        # Pre-bind participant_ids to roles in DB for round 1
-        c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, round_number) VALUES (%s, %s, %s, %s)",
-            (game_id, player1_id, "player1", 1),
-        )
-        c.execute(
-            "INSERT INTO participant_bindings (game_id, participant_id, role, round_number) VALUES (%s, %s, %s, %s)",
-            (game_id, player2_id, "player2", 1),
-        )
-        # Create initial round with chosen card
-        c.execute(
-            "INSERT INTO rounds (game_id, round_number, chosen_card_id, started_at) VALUES (%s, %s, %s, %s)",
-            (game_id, 1, chosen_card, datetime.datetime.now().isoformat()),
-        )
-
-    return jsonify({
-        "status": "ok",
-        "game_id": game_id,
-        "chosen_card": chosen_card,
-        "participant_ids": {
-            "player1": player1_id,
-            "player2": player2_id
-        }
-    })
-
-
 @app.route("/eliminate_card", methods=["POST"])
 def eliminate_card():
-    """Player 2 eliminates a card."""
+    """Current guesser (player2) eliminates a card."""
     data = request.get_json(silent=True) or {}
     card_id = data.get("card_id")
     game_id = data.get("game_id")
-    
+    participant_id = data.get("participant_id")
+
     if not game_id:
         return jsonify({"status": "error", "message": "game_id required"}), 400
     if not card_id:
         return jsonify({"status": "error", "message": "card_id required"}), 400
 
-    card_id_int = int(card_id)
+    game_state = get_game_state(game_id)
+    if is_moderator():
+        if not can_view_game(game_id, get_current_session_game_id):
+            return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    else:
+        guesser_id = (game_state or {}).get("player2_id")
+        if not participant_id or not guesser_id or participant_id != guesser_id:
+            return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    try:
+        card_id_int = int(card_id)
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "message": "card_id must be an integer"}), 400
     card_name = get_card_name(card_id_int)
 
     # Check if card is already eliminated (in current round)
@@ -1364,9 +1318,11 @@ def game_status():
     """Check game state for active players."""
     game_id = request.args.get("game_id")
     participant_id = request.args.get("participant_id")
-    
+
     if not game_id:
         return jsonify({"status": "error", "message": "game_id required"}), 400
+    if not can_access_game_data(game_id, participant_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
 
     game_state = get_game_state(game_id)
     if not game_state:
@@ -2799,8 +2755,16 @@ def transcript():
     
     if not game_id:
         return jsonify({"status": "error", "message": "game_id required"}), 400
-    
-    limit = int(request.args.get("limit", "200"))
+
+    participant_id = request.args.get("participant_id")
+    if not can_access_game_data(game_id, participant_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    try:
+        limit = int(request.args.get("limit", "200"))
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "message": "limit must be an integer"}), 400
+    limit = max(1, min(limit, 500))
     transcript_type = request.args.get("type", "all")
     include_eliminations = is_staff()
     elimination_round_number = None

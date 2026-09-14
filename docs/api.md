@@ -9,7 +9,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 - `GET /` — staff login
 - `POST /login` — `password`, optional `role` (`moderator` or `auditor`)
 - `GET /logout`
-- `GET /game/status` — query `game_id`, optional `participant_id`
+- `GET /game/status` — query `game_id`; staff session **or** bound `participant_id`
 
 ### Participants
 
@@ -19,8 +19,8 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 
 ### Players
 
-- `GET /player1`, `GET /player2` — query `game_id`, `participant_id`
-- `POST /eliminate_card` — `{"game_id", "card_id"}`
+- `GET /player1`, `GET /player2` — query `game_id` and bound `participant_id` (403 if missing or mismatched; secret card is not rendered)
+- `POST /eliminate_card` — `{"game_id", "card_id"}` plus bound guesser `participant_id`, or a moderator session
 
 ### Moderator
 
@@ -50,7 +50,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 
 ### Transcript and ICE
 
-- `GET /transcript` — query `game_id`, optional `limit`, `type=all|events|chat`
+- `GET /transcript` — query `game_id`, optional `limit` (1–500), `type=all|events|chat`, and bound `participant_id` unless a staff session is present
 - `GET /api/webrtc/ice-servers` — optional `user_id` or `role`. Returns `mode`, `iceServers`, `iceTransportPolicy`. Never includes `TURN_SECRET`.
 
 ## Socket.IO

@@ -84,14 +84,15 @@ class TestRoleBinding:
         assert res2.status_code == 200, f"Failed to join: {data2}"
         p2_id = data2['participant_id']
         
-        # Player 1 tries to access Player 2's page with wrong ID → should show error notification
-        # Route binding logic renders page but with permission warning message
+        # Player 1 must not see Player 2's page (or the secret card).
         res = client.get(f"/player2?game_id={game_id}&participant_id={p1_id}")
-        assert res.status_code == 200  # Route renders but shows error
-        
+        assert res.status_code == 403
+        assert b"static/cards/" not in res.data
+
         # Player 1 accessing their own page should work
         res = client.get(f"/player1?game_id={game_id}&participant_id={p1_id}")
         assert res.status_code == 200
+        assert b"static/cards/" in res.data
 
     def test_role_binding_enforced_on_socket_io(self, socketio_client, reset_globals):
         """Test that Socket.IO rejects wrong role/participant_id combo."""
@@ -249,11 +250,10 @@ class TestRoleBinding:
         # Try to access with fake participant_id (not in any binding)
         fake_id = "fake-participant-id-12345"
         res = client.get(f"/player1?game_id={game_id}&participant_id={fake_id}")
-        
-        # Should still render page (no 403), but with error message
-        assert res.status_code == 200
-        # Error should be shown to user (check if error notification is in HTML)
-        assert b"no longer active" in res.data or b"Forbidden" in res.data or len(res.data) > 0
+
+        assert res.status_code == 403
+        assert b"Forbidden" in res.data
+        assert b"static/cards/" not in res.data
 
     def test_cannot_switch_roles_after_binding(self, client, reset_globals):
         """Test that bound participant_id cannot access other role's page."""
@@ -282,13 +282,13 @@ class TestRoleBinding:
         assert p1_role == 'player1'
         assert p2_role == 'player2'
         
-        # Player 1 tries to access Player 2 role - should be blocked
         res_invalid = client.get(f"/player2?game_id={game_id}&participant_id={p1_id}")
-        assert res_invalid.status_code == 200  # Still renders but with error
-        
-        # Player 2 tries to access Player 1 role - should be blocked
+        assert res_invalid.status_code == 403
+        assert b"static/cards/" not in res_invalid.data
+
         res_invalid2 = client.get(f"/player1?game_id={game_id}&participant_id={p2_id}")
-        assert res_invalid2.status_code == 200  # Still renders but with error
+        assert res_invalid2.status_code == 403
+        assert b"static/cards/" not in res_invalid2.data
 
     def test_binding_survives_game_state_transitions(self, client, reset_globals):
         """Test role binding persists through game state changes (READY→IN_PROGRESS→ENDED)."""
