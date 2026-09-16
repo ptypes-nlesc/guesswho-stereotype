@@ -64,6 +64,24 @@ class TestAuditorAuth:
         data = json.loads(res.data)
         assert data["status"] == "no_session"
 
+    def test_auditor_status_omits_join_tokens(self, client, reset_globals):
+        self.moderator_login(client)
+        open_res = client.post("/moderator/control/open", json={})
+        game_id = json.loads(open_res.data)["game_id"]
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        client.get("/logout")
+
+        self.auditor_login(client)
+        res = client.get("/moderator/control/status")
+        data = json.loads(res.data)
+        assert data["status"] == "ok"
+        assert data["game_id"] == game_id
+        assert "player1_token" not in data
+        assert "player2_token" not in data
+
     def test_auditor_cannot_open_entry(self, client, reset_globals):
         self.auditor_login(client)
         res = client.post("/moderator/control/open", json={})

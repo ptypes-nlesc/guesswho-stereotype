@@ -68,3 +68,6 @@ jobs:
 
       - name: Run tests with pytest
         run: pytest tests/ -v --tb=short
+
+      - name: Audit Python dependencies
+        run: pip-audit -r requirements.txt

@@ -48,6 +48,20 @@ class TestAudioUpload:
         assert game_state["state"] == "IN_PROGRESS"
         return game_id, game_state
 
+    def _register_recording(self, game_id, recording_id):
+        from app import get_game_state, set_game_state
+
+        game_state = get_game_state(game_id)
+        recent = list(game_state.get("recent_recording_ids") or [])
+        if recording_id not in recent:
+            recent.append(recording_id)
+        game_state["recent_recording_ids"] = recent
+        set_game_state(game_id, game_state)
+
+    @staticmethod
+    def _webm(payload):
+        return b"\x1a\x45\xdf\xa3" + payload
+
     def _stem_form(self, game_id, recording_id, role, participant_id=None, **overrides):
         data = {
             "game_id": game_id,
@@ -94,7 +108,7 @@ class TestAudioUpload:
         game_id, _game_state = self._start_game_in_progress(client)
 
         data = self._stem_form(game_id, "rec1", "player1", participant_id="not-a-player")
-        data["file"] = (io.BytesIO(b"fake-webm-bytes"), "stem.webm")
+        data["file"] = (io.BytesIO(self._webm(b"fake-webm-bytes")), "stem.webm")
         res = client.post(
             "/audio/upload",
             data=data,
@@ -109,9 +123,11 @@ class TestAudioUpload:
         game_id, game_state = self._start_game_in_progress(client)
         p1 = game_state["player1_id"]
         recording_id = "abcdef0123456789"
+        self._register_recording(game_id, recording_id)
+        stem = self._webm(b"fake-webm-bytes-player1")
 
         data = self._stem_form(game_id, recording_id, "player1", participant_id=p1)
-        data["file"] = (io.BytesIO(b"fake-webm-bytes-player1"), "stem.webm")
+        data["file"] = (io.BytesIO(stem), "stem.webm")
         res = client.post(
             "/audio/upload",
             data=data,
@@ -122,13 +138,13 @@ class TestAudioUpload:
         assert body["status"] == "ok"
         assert body["recording_id"] == recording_id
         assert body["role"] == "player1"
-        assert body["byte_size"] == len(b"fake-webm-bytes-player1")
+        assert body["byte_size"] == len(stem)
         assert body["audio_path"].endswith(f"{recording_id}_player1_{p1}.webm")
 
         abs_path = os.path.join(tmp_path, body["audio_path"])
         assert os.path.isfile(abs_path)
         with open(abs_path, "rb") as fh:
-            assert fh.read() == b"fake-webm-bytes-player1"
+            assert fh.read() == stem
 
         with app_module.get_db_conn() as conn:
             c = conn.cursor()
@@ -144,7 +160,7 @@ class TestAudioUpload:
             row = c.fetchone()
             assert row is not None
             assert row["participant_id"] == p1
-            assert row["byte_size"] == len(b"fake-webm-bytes-player1")
+            assert row["byte_size"] == len(stem)
             assert row["client_recorder_start_ts"] == 1100
             assert row["client_recorder_stop_ts"] == 2100
 
@@ -160,20 +176,21 @@ class TestAudioUpload:
         game_id, game_state = self._start_game_in_progress(client)
         p1 = game_state["player1_id"]
         recording_id = "rec-idempotent"
+        self._register_recording(game_id, recording_id)
 
         data = self._stem_form(game_id, recording_id, "player1", participant_id=p1)
-        data["file"] = (io.BytesIO(b"first"), "stem.webm")
+        data["file"] = (io.BytesIO(self._webm(b"first")), "stem.webm")
         res1 = client.post("/audio/upload", data=data, content_type="multipart/form-data")
         assert res1.status_code == 200
 
         data2 = self._stem_form(game_id, recording_id, "player1", participant_id=p1)
-        data2["file"] = (io.BytesIO(b"second-overwrite"), "stem.webm")
+        data2["file"] = (io.BytesIO(self._webm(b"second-overwrite")), "stem.webm")
         res2 = client.post("/audio/upload", data=data2, content_type="multipart/form-data")
         assert res2.status_code == 200
         body = json.loads(res2.data)
         abs_path = os.path.join(tmp_path, body["audio_path"])
         with open(abs_path, "rb") as fh:
-            assert fh.read() == b"second-overwrite"
+            assert fh.read() == self._webm(b"second-overwrite")
 
         with app_module.get_db_conn() as conn:
             c = conn.cursor()
@@ -196,7 +213,7 @@ class TestAudioUpload:
             sess.clear()
 
         data = self._stem_form(game_id, "rec-mod", "moderator")
-        data["file"] = (io.BytesIO(b"mod-bytes"), "mod.webm")
+        data["file"] = (io.BytesIO(self._webm(b"mod-bytes")), "mod.webm")
         res = client.post("/audio/upload", data=data, content_type="multipart/form-data")
         assert res.status_code == 403
 
@@ -206,9 +223,10 @@ class TestAudioUpload:
         monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(tmp_path))
         game_id, _game_state = self._start_game_in_progress(client)
         recording_id = "rec-mod-ok"
+        self._register_recording(game_id, recording_id)
 
         data = self._stem_form(game_id, recording_id, "moderator")
-        data["file"] = (io.BytesIO(b"moderator-audio"), "mod.webm")
+        data["file"] = (io.BytesIO(self._webm(b"moderator-audio")), "mod.webm")
         res = client.post("/audio/upload", data=data, content_type="multipart/form-data")
         assert res.status_code == 200, res.data
         body = json.loads(res.data)
@@ -224,6 +242,7 @@ class TestAudioUpload:
         monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(tmp_path))
         game_id, game_state = self._start_game_in_progress(client)
         original_p1 = game_state["player1_id"]
+        self._register_recording(game_id, "rec-pre-swap")
 
         client.post("/moderator/control/swap_roles", json={})
         game_state = app_module.get_game_state(game_id)
@@ -233,7 +252,7 @@ class TestAudioUpload:
         data = self._stem_form(
             game_id, "rec-pre-swap", "player1", participant_id=original_p1
         )
-        data["file"] = (io.BytesIO(b"late-stem"), "stem.webm")
+        data["file"] = (io.BytesIO(self._webm(b"late-stem")), "stem.webm")
         res = client.post("/audio/upload", data=data, content_type="multipart/form-data")
         assert res.status_code == 200, res.data
 
@@ -245,6 +264,7 @@ class TestAudioUpload:
         monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(tmp_path))
         game_id, game_state = self._start_game_in_progress(client)
         p1 = game_state["player1_id"]
+        self._register_recording(game_id, "rec-sock")
 
         socketio_client.emit(
             "join",
@@ -253,7 +273,7 @@ class TestAudioUpload:
         socketio_client.get_received()
 
         data = self._stem_form(game_id, "rec-sock", "player1", participant_id=p1)
-        data["file"] = (io.BytesIO(b"sock-bytes"), "stem.webm")
+        data["file"] = (io.BytesIO(self._webm(b"sock-bytes")), "stem.webm")
         res = client.post("/audio/upload", data=data, content_type="multipart/form-data")
         assert res.status_code == 200
 
@@ -264,3 +284,32 @@ class TestAudioUpload:
         assert payload["game_id"] == game_id
         assert payload["role"] == "player1"
         assert payload["recording_id"] == "rec-sock"
+
+    def test_upload_rejects_unknown_recording_id(
+        self, client, reset_globals, tmp_path, monkeypatch
+    ):
+        import app as app_module
+
+        monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(tmp_path))
+        game_id, game_state = self._start_game_in_progress(client)
+        p1 = game_state["player1_id"]
+        data = self._stem_form(game_id, "not-a-take", "player1", participant_id=p1)
+        data["file"] = (io.BytesIO(self._webm(b"x")), "stem.webm")
+        res = client.post("/audio/upload", data=data, content_type="multipart/form-data")
+        assert res.status_code == 403
+        assert "recording_id" in json.loads(res.data)["message"]
+
+    def test_upload_rejects_non_audio_payload(
+        self, client, reset_globals, tmp_path, monkeypatch
+    ):
+        import app as app_module
+
+        monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(tmp_path))
+        game_id, game_state = self._start_game_in_progress(client)
+        p1 = game_state["player1_id"]
+        self._register_recording(game_id, "rec-magic")
+        data = self._stem_form(game_id, "rec-magic", "player1", participant_id=p1)
+        data["file"] = (io.BytesIO(b"not-audio"), "stem.webm")
+        res = client.post("/audio/upload", data=data, content_type="multipart/form-data")
+        assert res.status_code == 400
+        assert "audio" in json.loads(res.data)["message"].lower()

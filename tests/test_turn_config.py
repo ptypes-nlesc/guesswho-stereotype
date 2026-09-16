@@ -79,10 +79,26 @@ def test_build_ice_config_coturn_mode():
 
 
 def test_build_ice_config_public_fallback():
-    cfg = build_ice_config(env={})
+    cfg = build_ice_config(env={"TURN_USE_PUBLIC_FALLBACK": "1"})
     assert cfg["mode"] == "public_fallback"
     assert cfg["ttl"] is None
     assert cfg["iceServers"] == public_fallback_ice_servers()
+
+
+def test_build_ice_config_default_is_stun_only_without_coturn():
+    cfg = build_ice_config(env={})
+    assert cfg["mode"] == "stun_only"
+
+
+def test_build_ice_config_default_ttl_is_12_hours():
+    cfg = build_ice_config(
+        env={
+            "TURN_SERVER": "example.test",
+            "TURN_SECRET": "s",
+            "TURN_INCLUDE_PUBLIC_STUN": "0",
+        }
+    )
+    assert cfg["ttl"] == 12 * 60 * 60
 
 
 def test_build_ice_config_stun_only_when_fallback_disabled():
@@ -116,6 +132,7 @@ def test_ice_servers_endpoint_public_fallback(monkeypatch):
     from app import app
 
     with app.test_client() as client:
+        client.post("/login", data={"password": "test-password", "role": "moderator"})
         res = client.get("/api/webrtc/ice-servers")
     assert res.status_code == 200
     data = res.get_json()
@@ -135,6 +152,7 @@ def test_ice_servers_endpoint_coturn(monkeypatch):
     from app import app
 
     with app.test_client() as client:
+        client.post("/login", data={"password": "test-password", "role": "moderator"})
         res = client.get("/api/webrtc/ice-servers?role=player1")
     assert res.status_code == 200
     data = res.get_json()
