@@ -21,6 +21,8 @@ Load from `.env` (or systemd `EnvironmentFile`). Never commit this file.
 | `SOCKETIO_CORS_ORIGINS` | Optional extra CORS origins (comma-separated) |
 | `AUDIO_STORAGE_DIR` | **Filesystem** directory for stems |
 | `TURN_SERVER`, `TURN_PORT`, `TURN_SECRET` | coturn (`static-auth-secret`) |
+| `TURN_TTL_SECONDS` | TURN credential lifetime (default 12 hours) |
+| `TURN_USE_PUBLIC_FALLBACK` | Set `1` for local play without coturn |
 
 `AUDIO_STORAGE_DIR` is a disk path writable by the Gunicorn user (for example `/home/xposed/audio`). It is not the HTTP route `/audio/upload`. A root path such as `/audio` will fail unless that directory exists and the service user can create files there.
 
@@ -42,9 +44,9 @@ min-port=49152
 max-port=49250
 ```
 
-After `systemctl restart coturn`, expect about **two** TCP and **two** UDP listeners on 3478 — not hundreds. The app mints short-lived TURN credentials; browsers never see `TURN_SECRET`. `GET /api/webrtc/ice-servers` should report `"mode": "coturn"`.
+After `systemctl restart coturn`, expect about **two** TCP and **two** UDP listeners on 3478 — not hundreds. The app mints 12-hour TURN credentials for staff or bound players; browsers never see `TURN_SECRET`. Logged-in `GET /api/webrtc/ice-servers` should report `"mode": "coturn"`.
 
-Local development: leave `TURN_SERVER` / `TURN_SECRET` unset for public ICE fallback.
+Local development: leave `TURN_SERVER` / `TURN_SECRET` unset and set `TURN_USE_PUBLIC_FALLBACK=1` for public ICE fallback. Without that flag the app is STUN-only.
 
 ## Health
 

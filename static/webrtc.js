@@ -34,6 +34,7 @@
     const socket = opts.socket;
     const gameId = opts.gameId;
     const role = opts.role;
+    const participantId = opts.participantId || null;
     const muteButtonEl = opts.muteButtonEl || opts.buttonEl;
     const statusEl = opts.statusEl;
     const socketReady = opts.socketReady || Promise.resolve();
@@ -54,7 +55,11 @@
       if (iceConfigPromise) return iceConfigPromise;
       iceConfigPromise = (async () => {
         try {
-          const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+          const params = new URLSearchParams();
+          if (gameId) params.set("game_id", gameId);
+          if (participantId) params.set("participant_id", participantId);
+          if (role) params.set("role", role);
+          const qs = params.toString() ? `?${params}` : "";
           const res = await fetch(`/api/webrtc/ice-servers${qs}`, {
             credentials: "same-origin",
             cache: "no-store",

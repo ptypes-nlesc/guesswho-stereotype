@@ -13,7 +13,7 @@ Supports two modes driven by environment variables:
 2. **Public fallback** (local mesh on a LAN / same machine)::
 
        TURN_SERVER and TURN_SECRET unset (or empty)
-       TURN_USE_PUBLIC_FALLBACK=1   # default when secret missing
+       TURN_USE_PUBLIC_FALLBACK=1   # opt-in; default is STUN-only when secret missing
 
    Uses Google STUN + public openrelay TURN (no server secret).
 
@@ -42,7 +42,7 @@ PUBLIC_TURN_USERNAME = "openrelayproject"
 PUBLIC_TURN_CREDENTIAL = "openrelayproject"
 
 DEFAULT_TURN_PORT = 3478
-DEFAULT_TTL_SECONDS = 24 * 60 * 60  # 24 hours
+DEFAULT_TTL_SECONDS = 12 * 60 * 60  # 12 hours (covers a long research sitting)
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -191,7 +191,7 @@ def build_ice_config(
     if policy not in ("all", "relay"):
         policy = "all"
 
-    use_public = get_bool("TURN_USE_PUBLIC_FALLBACK", True)
+    use_public = get_bool("TURN_USE_PUBLIC_FALLBACK", False)
     include_public_stun = get_bool("TURN_INCLUDE_PUBLIC_STUN", True)
 
     # Optional explicit URL list (comma-separated), advanced override.

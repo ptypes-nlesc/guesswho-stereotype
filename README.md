@@ -44,7 +44,7 @@ MODERATOR_PASSWORD=change-me
 # DB_HOST, DB_USER, DB_PWD, DB_NAME — or DATABASE_URL
 # REDIS_HOST=localhost
 # AUDIO_STORAGE_DIR=  # filesystem path; default data/audio
-# TURN_SERVER / TURN_SECRET  # omit for public ICE fallback
+# TURN_SERVER / TURN_SECRET  # omit + TURN_USE_PUBLIC_FALLBACK=1 for local ICE
 ```
 
 ```bash

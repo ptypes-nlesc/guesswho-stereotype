@@ -1607,23 +1607,48 @@ def join_enter():
     # Token not yet used - generate participant_id and mark token as used
     participant_id = str(uuid.uuid4())
 
-    with get_db_conn() as conn:
-        c = conn.cursor()
-        # Insert participant first (foreign key constraint)
-        c.execute(
-            "INSERT INTO participants (id, created_at) VALUES (%s, %s)",
-            (participant_id, datetime.datetime.now().isoformat())
-        )
-        # Then update token with participant_id
-        c.execute(
-            "UPDATE access_tokens SET used_at = %s, participant_id = %s WHERE token = %s",
-            (datetime.datetime.now().isoformat(), participant_id, token)
-        )
-        # Context manager auto-commits
+    try:
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO participants (id, created_at) VALUES (%s, %s)",
+                (participant_id, datetime.datetime.now().isoformat())
+            )
+            c.execute(
+                """
+                UPDATE access_tokens
+                SET used_at = %s, participant_id = %s
+                WHERE token = %s AND used_at IS NULL
+                """,
+                (datetime.datetime.now().isoformat(), participant_id, token)
+            )
+            if c.rowcount != 1:
+                raise RuntimeError("token already consumed")
+    except RuntimeError:
+        return jsonify({
+            "status": "error",
+            "message": "This token has already been used and cannot be reused",
+        }), 400
+
+    def _release_join_token():
+        try:
+            with get_db_conn() as conn:
+                c = conn.cursor()
+                c.execute(
+                    """
+                    UPDATE access_tokens
+                    SET used_at = NULL, participant_id = NULL
+                    WHERE token = %s AND participant_id = %s
+                    """,
+                    (token, participant_id),
+                )
+        except Exception as exc:
+            print(f"Failed to release join token: {exc}")
 
     # Re-load state after DB work in case another joiner raced us.
     game_state = get_game_state(current_game_id) or game_state
     if game_state.get('state') != 'OPEN':
+        _release_join_token()
         return jsonify({"status": "error", "message": "Entry is not open"}), 400
     if 'waiting_participants' not in game_state or not isinstance(game_state['waiting_participants'], list):
         game_state['waiting_participants'] = []
@@ -1641,6 +1666,7 @@ def join_enter():
         })
 
     if len(game_state['waiting_participants']) >= 2:
+        _release_join_token()
         return jsonify({"status": "error", "message": "Capacity reached"}), 400
 
     game_state['waiting_participants'].append({
@@ -1714,6 +1740,10 @@ def _stop_active_recording(game_id, game_state, reason="moderator_stop"):
         "server_stop_ts": server_ts,
         "stems": {},
     }
+    recent = list(game_state.get("recent_recording_ids") or [])
+    if recording_id and recording_id not in recent:
+        recent.append(recording_id)
+    game_state["recent_recording_ids"] = recent[-4:]
     set_game_state(game_id, game_state)
 
     payload = {
@@ -1737,6 +1767,10 @@ def _start_active_recording(game_id, game_state, reason="moderator_start"):
     game_state["recording_active"] = True
     game_state["recording_id"] = recording_id
     game_state["recording_server_ts"] = server_ts
+    recent = list(game_state.get("recent_recording_ids") or [])
+    if recording_id not in recent:
+        recent.append(recording_id)
+    game_state["recent_recording_ids"] = recent[-4:]
     set_game_state(game_id, game_state)
 
     payload = {
@@ -1800,9 +1834,7 @@ def moderator_control_status():
 
     player1_id = game_state.get('player1_id')
     player2_id = game_state.get('player2_id')
-    tokens = get_tokens_by_participant_ids([player1_id, player2_id])
-
-    return jsonify({
+    payload = {
         "status": "ok",
         "game_id": moderator_game_id,
         "state": game_state['state'],
@@ -1811,12 +1843,15 @@ def moderator_control_status():
         "waiting_count": len(game_state.get('waiting_participants', [])),
         "player1_id": player1_id,
         "player2_id": player2_id,
-        "player1_token": tokens.get(player1_id),
-        "player2_token": tokens.get(player2_id),
         "recording_active": bool(game_state.get("recording_active")),
         "recording_id": game_state.get("recording_id") if game_state.get("recording_active") else None,
         "last_audio_uploads": game_state.get("last_audio_uploads"),
-    })
+    }
+    if is_moderator():
+        tokens = get_tokens_by_participant_ids([player1_id, player2_id])
+        payload["player1_token"] = tokens.get(player1_id)
+        payload["player2_token"] = tokens.get(player2_id)
+    return jsonify(payload)
 
 
 @app.route("/moderator/control/open", methods=["POST"])
@@ -2214,8 +2249,35 @@ def _safe_audio_filename_part(value, fallback="none"):
     return cleaned[:80] or fallback
 
 
-def _authorize_audio_upload(game_id, role, participant_id, game_state):
-    """Soft auth for stem upload. Returns (ok, error_message, http_status)."""
+_WEBM_MAGIC = b"\x1a\x45\xdf\xa3"
+_OGG_MAGIC = b"OggS"
+
+
+def _looks_like_audio(raw):
+    """True when the payload starts with WebM/EBML, Ogg, or MP4 ftyp."""
+    if not raw or len(raw) < 4:
+        return False
+    if raw.startswith(_WEBM_MAGIC) or raw.startswith(_OGG_MAGIC):
+        return True
+    return len(raw) >= 8 and raw[4:8] == b"ftyp"
+
+
+def _known_recording_ids(game_state):
+    known = set()
+    active = game_state.get("recording_id")
+    if active:
+        known.add(active)
+    last = game_state.get("last_audio_uploads")
+    if isinstance(last, dict) and last.get("recording_id"):
+        known.add(last["recording_id"])
+    for rid in game_state.get("recent_recording_ids") or []:
+        if rid:
+            known.add(rid)
+    return known
+
+
+def _authorize_audio_upload(game_id, role, participant_id, game_state, recording_id):
+    """Auth for stem upload. Returns (ok, error_message, http_status)."""
     if role not in AUDIO_UPLOAD_ROLES:
         return False, "Invalid role", 400
 
@@ -2230,17 +2292,22 @@ def _authorize_audio_upload(game_id, role, participant_id, game_state):
         mod_game = session.get("moderator_session_game_id") or get_current_session_game_id()
         if mod_game and mod_game != game_id:
             return False, "game_id does not match moderator session", 403
+        if recording_id not in _known_recording_ids(game_state):
+            return False, "unknown recording_id", 403
         return True, None, 200
 
     if not participant_id:
         return False, "participant_id required for player uploads", 400
 
     # After role swap, player1_id/player2_id flip before late uploads arrive.
-    # Accept either assigned participant; trust client role as the stem label for
-    # the take that was just recorded on that page.
+    # Accept either assigned participant; client role is the stem label for
+    # the take recorded on that page.
     assigned = {game_state.get("player1_id"), game_state.get("player2_id")}
     if participant_id not in assigned:
         return False, "participant_id is not assigned to this game", 403
+
+    if recording_id not in _known_recording_ids(game_state):
+        return False, "unknown recording_id", 403
 
     return True, None, 200
 
@@ -2300,7 +2367,9 @@ def audio_upload():
     if not game_state:
         return jsonify({"status": "error", "message": "Unknown game_id"}), 404
 
-    ok, err, status = _authorize_audio_upload(game_id, role, participant_id, game_state)
+    ok, err, status = _authorize_audio_upload(
+        game_id, role, participant_id, game_state, recording_id
+    )
     if not ok:
         return jsonify({"status": "error", "message": err}), status
 
@@ -2311,6 +2380,8 @@ def audio_upload():
     raw = upload.read()
     if not raw:
         return jsonify({"status": "error", "message": "empty audio file"}), 400
+    if not _looks_like_audio(raw):
+        return jsonify({"status": "error", "message": "file is not a recognized audio container"}), 400
 
     mime_type = (request.form.get("mime_type") or upload.mimetype or "audio/webm").strip()
     server_start_ts = (request.form.get("server_ts") or "").strip() or None
@@ -2826,6 +2897,14 @@ def webrtc_ice_servers():
     - public_fallback: secret unset and TURN_USE_PUBLIC_FALLBACK enabled (local)
     - stun_only: no secret and public fallback disabled
     """
+    game_id = request.args.get("game_id")
+    participant_id = request.args.get("participant_id")
+    if is_staff():
+        if game_id and not can_view_game(game_id, get_current_session_game_id):
+            return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    elif not can_access_game_data(game_id, participant_id):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
     user_id = request.args.get("user_id") or request.args.get("role")
     try:
         config = build_ice_config(user_id=user_id)

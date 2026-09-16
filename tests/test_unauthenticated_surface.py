@@ -127,3 +127,17 @@ class TestUnauthenticatedSurface:
         session = self._start_in_progress(client)
         res = client.get(f"/transcript?game_id={session['game_id']}&limit=nope")
         assert res.status_code == 400
+
+    def test_anonymous_ice_servers_is_forbidden(self, client, reset_globals):
+        res = client.get("/api/webrtc/ice-servers")
+        assert res.status_code == 403
+
+    def test_player_ice_servers_allowed(self, client, reset_globals):
+        session = self._start_in_progress(client)
+        client.get("/logout")
+        res = client.get(
+            "/api/webrtc/ice-servers"
+            f"?game_id={session['game_id']}&participant_id={session['player1_id']}&role=player1"
+        )
+        assert res.status_code == 200
+        assert json.loads(res.data).get("status") == "ok"

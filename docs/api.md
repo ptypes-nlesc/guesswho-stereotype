@@ -28,7 +28,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 - `GET /dashboard`
 - `GET /moderator` — query `game_id`
 - `GET /moderator/control` — redirects to dashboard
-- `GET /moderator/control/status` — includes `player1_id`, `player2_id`, and join `player1_token` / `player2_token` once roles are assigned
+- `GET /moderator/control/status` — includes `player1_id`, `player2_id`; join `player1_token` / `player2_token` for **moderators** only once roles are assigned
 - `POST /moderator/control/open`
 - `POST /moderator/control/close`
 - `POST /moderator/control/start` — `READY` → `IN_PROGRESS`
@@ -52,7 +52,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 ### Transcript and ICE
 
 - `GET /transcript` — query `game_id`, optional `limit` (1–500), `type=all|events|chat`, and bound `participant_id` unless a staff session is present
-- `GET /api/webrtc/ice-servers` — optional `user_id` or `role`. Returns `mode`, `iceServers`, `iceTransportPolicy`. Never includes `TURN_SECRET`.
+- `GET /api/webrtc/ice-servers` — staff session **or** bound `game_id` + `participant_id`; optional `user_id` / `role`. Returns `mode`, `iceServers`, `iceTransportPolicy`, `ttl` (12 hours for coturn). Never includes `TURN_SECRET`. Public TURN fallback only when `TURN_USE_PUBLIC_FALLBACK=1`.
 
 ## Socket.IO
 
