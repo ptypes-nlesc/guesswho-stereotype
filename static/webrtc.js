@@ -34,7 +34,6 @@
     const socket = opts.socket;
     const gameId = opts.gameId;
     const role = opts.role;
-    const participantId = opts.participantId || null;
     const muteButtonEl = opts.muteButtonEl || opts.buttonEl;
     const statusEl = opts.statusEl;
     const socketReady = opts.socketReady || Promise.resolve();
