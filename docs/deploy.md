@@ -20,6 +20,8 @@ Load from `.env` (or systemd `EnvironmentFile`). Never commit this file.
 | `APP_URL` | Public hostname for token links and Socket.IO CORS |
 | `SOCKETIO_CORS_ORIGINS` | Optional extra CORS origins (comma-separated) |
 | `AUDIO_STORAGE_DIR` | **Filesystem** directory for stems |
+| `AUDIO_AGE_PUBLIC_KEY` | age public key, or path to a recipients file. When set, stems are encrypted on save |
+| `AUDIO_AGE_BIN` | age binary (default `age` on `PATH`) |
 | `TURN_SERVER`, `TURN_PORT`, `TURN_SECRET` | coturn (`static-auth-secret`) |
 | `TURN_TTL_SECONDS` | TURN credential lifetime (default 12 hours) |
 | `TURN_USE_PUBLIC_FALLBACK` | Set `1` for local play without coturn |
@@ -69,6 +71,8 @@ Layout:
 {AUDIO_STORAGE_DIR}/{game_id}/{recording_id}_{role}_{participant}.webm
 ```
 
+When `AUDIO_AGE_PUBLIC_KEY` is set, the same name is stored with `.age` appended. The browser still uploads plaintext. The server encrypts it to that public key and does not leave the `.webm` on disk. `byte_size` in `audio_events` is the plaintext size. The private key stays off the server.
+
 One take produces three stems (player1, player2, moderator). Role swap starts a second take. Metadata is in `audio_events`.
 
 Copy off the server:
@@ -77,7 +81,15 @@ Copy off the server:
 rsync -avP user@host:/path/to/audio/ ./audio/
 ```
 
-Use `-e 'ssh -p <port>'` 
+Use `-e 'ssh -p <port>'`.
+
+Decrypt on a machine that has the matching age identity:
+
+```bash
+find ./audio -name '*.age' -print0 | while IFS= read -r -d '' f; do
+  age -d -i /path/to/identity.txt -o "${f%.age}" "$f"
+done
+``` 
 
 ## Database
 

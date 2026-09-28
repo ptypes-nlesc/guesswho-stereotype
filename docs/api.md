@@ -45,7 +45,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
   - required: `file`, `game_id`, `recording_id`, `role`, `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`
   - optional: `participant_id` (required for players), `server_ts`, `server_stop_ts`, `mime_type`
   - players must be assigned to the game; moderator needs a staff session
-  - stores `{AUDIO_STORAGE_DIR}/{game_id}/{recording_id}_{role}_{participant}.webm`
+  - stores `{AUDIO_STORAGE_DIR}/{game_id}/{recording_id}_{role}_{participant}.webm`, or the same path plus `.age` when `AUDIO_AGE_PUBLIC_KEY` is set
   - upserts `audio_events` on `(game_id, recording_id, role)`
   - emits `audio_upload_complete`; updates `last_audio_uploads`
 
