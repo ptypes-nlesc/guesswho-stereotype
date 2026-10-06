@@ -4,6 +4,8 @@ import csv
 import io
 import json
 import os
+import shutil
+import subprocess
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -313,3 +315,147 @@ class TestAudioUpload:
         res = client.post("/audio/upload", data=data, content_type="multipart/form-data")
         assert res.status_code == 400
         assert "audio" in json.loads(res.data)["message"].lower()
+
+    def _age_identity(self, directory):
+        age = shutil.which("age")
+        keygen = shutil.which("age-keygen")
+        if not age or not keygen:
+            pytest.skip("age is not installed")
+        identity = directory / "identity.txt"
+        proc = subprocess.run(
+            [keygen, "-o", str(identity)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        public_key = None
+        for line in identity.read_text(encoding="utf-8").splitlines():
+            if line.startswith("# public key:"):
+                public_key = line.split()[-1]
+        if not public_key:
+            for line in (proc.stderr or "").splitlines():
+                if "public key:" in line.lower() or line.startswith("age1"):
+                    public_key = line.split()[-1]
+        assert public_key and public_key.startswith("age1")
+        return age, identity, public_key
+
+    def _post_stem(self, client, game_id, recording_id, participant_id, stem):
+        data = self._stem_form(game_id, recording_id, "player1", participant_id=participant_id)
+        data["file"] = (io.BytesIO(stem), "stem.webm")
+        return client.post(
+            "/audio/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+
+    def test_upload_encrypts_before_saving(self, client, reset_globals, tmp_path, monkeypatch):
+        import app as app_module
+
+        keys = tmp_path / "keys"
+        storage = tmp_path / "stems"
+        keys.mkdir()
+        storage.mkdir()
+        age, identity, public_key = self._age_identity(keys)
+        recipient = keys / "audio.pub"
+        recipient.write_text(public_key + "\n", encoding="utf-8")
+
+        monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(storage))
+        monkeypatch.setattr(app_module, "AUDIO_AGE_PUBLIC_KEY", str(recipient))
+        monkeypatch.setattr(app_module, "AUDIO_AGE_BIN", age)
+
+        game_id, game_state = self._start_game_in_progress(client)
+        p1 = game_state["player1_id"]
+        recording_id = "rec-age"
+        self._register_recording(game_id, recording_id)
+        first = self._webm(b"first-take")
+        second = self._webm(b"second-take")
+
+        res = self._post_stem(client, game_id, recording_id, p1, first)
+        assert res.status_code == 200, res.data
+        body = json.loads(res.data)
+        assert body["byte_size"] == len(first)
+        assert body["audio_path"].endswith(f"{recording_id}_player1_{p1}.webm.age")
+
+        cipher_path = storage / body["audio_path"]
+        plain_path = storage / body["audio_path"][: -len(".age")]
+        plain_path.write_bytes(b"leftover-plaintext")
+
+        res2 = self._post_stem(client, game_id, recording_id, p1, second)
+        assert res2.status_code == 200, res2.data
+        body2 = json.loads(res2.data)
+        assert body2["audio_path"] == body["audio_path"]
+        assert body2["byte_size"] == len(second)
+        assert not plain_path.exists()
+        assert cipher_path.is_file()
+        assert cipher_path.read_bytes().startswith(b"age-encryption.org/")
+        assert not any(p.name.endswith(".part") for p in storage.rglob("*"))
+        assert not any(p.name.endswith(".webm") for p in storage.rglob("*"))
+
+        decrypted = keys / "decrypted.webm"
+        subprocess.run(
+            [age, "-d", "-i", str(identity), "-o", str(decrypted), str(cipher_path)],
+            check=True,
+            capture_output=True,
+        )
+        assert decrypted.read_bytes() == second
+
+        with app_module.get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT audio_path, byte_size FROM audio_events
+                WHERE game_id = %s AND recording_id = %s AND role = %s
+                """,
+                (game_id, recording_id, "player1"),
+            )
+            row = c.fetchone()
+        assert row["audio_path"] == body["audio_path"]
+        assert row["byte_size"] == len(second)
+
+    def test_upload_encrypts_with_raw_public_key(self, client, reset_globals, tmp_path, monkeypatch):
+        import app as app_module
+
+        keys = tmp_path / "keys"
+        storage = tmp_path / "stems"
+        keys.mkdir()
+        storage.mkdir()
+        age, identity, public_key = self._age_identity(keys)
+        monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(storage))
+        monkeypatch.setattr(app_module, "AUDIO_AGE_PUBLIC_KEY", public_key)
+        monkeypatch.setattr(app_module, "AUDIO_AGE_BIN", age)
+
+        game_id, game_state = self._start_game_in_progress(client)
+        p1 = game_state["player1_id"]
+        recording_id = "rec-age-raw"
+        self._register_recording(game_id, recording_id)
+        stem = self._webm(b"raw-recipient")
+        res = self._post_stem(client, game_id, recording_id, p1, stem)
+        assert res.status_code == 200, res.data
+        cipher_path = storage / json.loads(res.data)["audio_path"]
+        decrypted = keys / "decrypted.webm"
+        subprocess.run(
+            [age, "-d", "-i", str(identity), "-o", str(decrypted), str(cipher_path)],
+            check=True,
+            capture_output=True,
+        )
+        assert decrypted.read_bytes() == stem
+
+    def test_upload_encryption_failure_leaves_no_plaintext(
+        self, client, reset_globals, tmp_path, monkeypatch
+    ):
+        import app as app_module
+
+        storage = tmp_path / "stems"
+        storage.mkdir()
+        monkeypatch.setattr(app_module, "AUDIO_STORAGE_DIR", str(storage))
+        monkeypatch.setattr(app_module, "AUDIO_AGE_PUBLIC_KEY", "age1not-used")
+        monkeypatch.setattr(app_module, "AUDIO_AGE_BIN", str(tmp_path / "missing-age"))
+
+        game_id, game_state = self._start_game_in_progress(client)
+        p1 = game_state["player1_id"]
+        recording_id = "rec-age-fail"
+        self._register_recording(game_id, recording_id)
+        res = self._post_stem(client, game_id, recording_id, p1, self._webm(b"nope"))
+        assert res.status_code == 500
+        assert json.loads(res.data)["message"] == "failed to store audio"
+        assert not any(p.is_file() for p in storage.rglob("*"))

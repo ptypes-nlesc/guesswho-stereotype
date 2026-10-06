@@ -5,6 +5,7 @@ import json
 import os
 import random
 import secrets
+import subprocess
 import threading
 import pymysql
 import time
@@ -120,6 +121,9 @@ if not SECRET_KEY:
 AUDIO_STORAGE_DIR = os.path.abspath(
     env_first("AUDIO_STORAGE_DIR", default=os.path.join(os.path.dirname(__file__), "data", "audio"))
 )
+# Public key, or a path to a recipients file. Empty keeps plaintext stems.
+AUDIO_AGE_PUBLIC_KEY = (env_first("AUDIO_AGE_PUBLIC_KEY", default="") or "").strip()
+AUDIO_AGE_BIN = (env_first("AUDIO_AGE_BIN", default="age") or "age").strip() or "age"
 # Cap per-request body (multipart stem + form fields). Override via env if needed.
 _AUDIO_MAX_UPLOAD_MB = _int_or_default(env_first("AUDIO_MAX_UPLOAD_MB", default="200"), 200)
 
@@ -2253,6 +2257,55 @@ _WEBM_MAGIC = b"\x1a\x45\xdf\xa3"
 _OGG_MAGIC = b"OggS"
 
 
+def _age_recipient_args(recipient):
+    """age -R for a recipients file, otherwise age -r for a raw public key."""
+    if os.path.isfile(recipient):
+        return ["-R", recipient]
+    return ["-r", recipient]
+
+
+def _encrypt_audio_to(raw, part_path):
+    """Write age ciphertext to part_path. Plaintext is passed on stdin only."""
+    if os.path.exists(part_path):
+        os.remove(part_path)
+    cmd = [AUDIO_AGE_BIN, *_age_recipient_args(AUDIO_AGE_PUBLIC_KEY), "-o", part_path]
+    try:
+        proc = subprocess.run(cmd, input=raw, capture_output=True, check=False)
+    except OSError as exc:
+        raise OSError(f"age failed to start: {exc.strerror or exc}") from exc
+    if proc.returncode != 0 or not os.path.isfile(part_path) or os.path.getsize(part_path) == 0:
+        detail = (proc.stderr or b"").decode("utf-8", "replace").strip()[:500]
+        raise OSError(detail or f"age exited {proc.returncode}")
+
+
+def _store_audio_bytes(raw, abs_path):
+    """Persist a stem and return the absolute path written.
+
+    With AUDIO_AGE_PUBLIC_KEY set, the file is ``abs_path + '.age'`` and the
+    plaintext path is removed. Otherwise the plaintext is written to abs_path.
+    """
+    encrypt = bool(AUDIO_AGE_PUBLIC_KEY)
+    dest = abs_path + ".age" if encrypt else abs_path
+    part_path = dest + ".part"
+    try:
+        if encrypt:
+            _encrypt_audio_to(raw, part_path)
+        else:
+            with open(part_path, "wb") as fh:
+                fh.write(raw)
+        os.replace(part_path, dest)
+        if encrypt and os.path.isfile(abs_path):
+            os.remove(abs_path)
+        return dest
+    except OSError:
+        if os.path.exists(part_path):
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
+        raise
+
+
 def _looks_like_audio(raw):
     """True when the payload starts with WebM/EBML, Ogg, or MP4 ftyp."""
     if not raw or len(raw) < 4:
@@ -2407,23 +2460,17 @@ def audio_upload():
     game_dir = os.path.join(AUDIO_STORAGE_DIR, safe_game)
     os.makedirs(game_dir, exist_ok=True)
     abs_path = os.path.join(game_dir, rel_name)
-    part_path = abs_path + ".part"
 
     try:
-        with open(part_path, "wb") as fh:
-            fh.write(raw)
-        os.replace(part_path, abs_path)
+        stored_abs = _store_audio_bytes(raw, abs_path)
     except OSError as exc:
-        try:
-            if os.path.exists(part_path):
-                os.remove(part_path)
-        except OSError:
-            pass
         print(f"audio upload write failed: {exc}")
         return jsonify({"status": "error", "message": "failed to store audio"}), 500
 
-    # Path stored relative to AUDIO_STORAGE_DIR for portability
-    audio_path = f"{safe_game}/{rel_name}"
+    # Path stored relative to AUDIO_STORAGE_DIR for portability.
+    # byte_size stays the plaintext recording size.
+    stored_name = os.path.basename(stored_abs)
+    audio_path = f"{safe_game}/{stored_name}"
     start_time = _ms_to_datetime(client_start_ts)
     end_time = _ms_to_datetime(client_stop_ts)
     byte_size = len(raw)
@@ -2530,7 +2577,7 @@ def audio_upload():
         text=f"recording_id={recording_id}; path={audio_path}; bytes={byte_size}",
         participant_id=participant_id,
     )
-    print(f"🎤 Audio uploaded {game_id}/{rel_name} ({byte_size} bytes)")
+    print(f"🎤 Audio uploaded {audio_path} ({byte_size} bytes)")
 
     return jsonify({
         "status": "ok",

@@ -16,6 +16,12 @@ Research web app for studying how people express stereotypes in a two-player ded
 - After round 1, **roles swap**. A **moderator** observes, chats, and controls recording.
 - Optional **auditor** role: read-only staff access.
 
+## Audio recordings
+
+Each person's microphone is saved for the study. The recordings contain identifiable speech, so the server encrypts them with [age](https://age-encryption.org/) before saving. Listening requires the private key, which stays on the researcher's own computer.
+
+Set `AUDIO_AGE_PUBLIC_KEY` in `.env` to your age public key, or to a file that contains it. For a local try-out, leave it empty and the app stores ordinary audio files.
+
 ## Stack
 
 | Layer | Technology |
@@ -44,6 +50,8 @@ MODERATOR_PASSWORD=change-me
 # DB_HOST, DB_USER, DB_PWD, DB_NAME — or DATABASE_URL
 # REDIS_HOST=localhost
 # AUDIO_STORAGE_DIR=  # filesystem path; default data/audio
+# AUDIO_AGE_PUBLIC_KEY=  # age public key, or path to a recipients file; encrypts stems on save
+# AUDIO_AGE_BIN=age       # age binary, if it is not on PATH
 # TURN_SERVER / TURN_SECRET  # omit + TURN_USE_PUBLIC_FALLBACK=1 for local ICE
 ```
 
