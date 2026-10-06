@@ -1728,7 +1728,7 @@ def _resolve_moderator_game_context():
     return moderator_game_id, game_state
 
 
-def _stop_active_recording(game_id, game_state, reason="moderator_stop"):
+def _stop_active_recording(game_id, game_state, reason="recording_stop"):
     """Stop an active recording and broadcast recording_stop. Returns payload or None."""
     if not game_state.get("recording_active"):
         return None
@@ -2061,8 +2061,8 @@ def moderator_swap_roles():
     if not old_player1_id or not old_player2_id:
         return jsonify({"status": "error", "message": "Missing player IDs"}), 400
 
-    # Close round-1 stems before pages navigate; open a new take for round 2 so
-    # the moderator only uses Start (game start) and Stop (game end).
+    # Close round-1 stems before pages navigate and open a new take for round 2.
+    # The moderator starts recording once. Ending the game stops the last take.
     was_recording = bool(game_state.get("recording_active"))
     if was_recording:
         _stop_active_recording(
@@ -2201,30 +2201,17 @@ def moderator_recording_start():
 
 @app.route("/moderator/control/recording/stop", methods=["POST"])
 def moderator_recording_stop():
-    """Stop the active recording session for the current game."""
+    """Reject a manual stop. A role swap and ending the game stop the take."""
     if not is_moderator():
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
 
-    moderator_game_id, game_state = _resolve_moderator_game_context()
-    if not moderator_game_id or not game_state:
-        return jsonify({"status": "error", "message": "No active session"}), 400
-
-    if game_state.get("state") != "IN_PROGRESS":
-        return jsonify({
-            "status": "error",
-            "message": f"Cannot stop recording in state: {game_state.get('state')}",
-        }), 400
-
-    if not game_state.get("recording_active"):
-        return jsonify({"status": "ok", "message": "No active recording"})
-
-    payload = _stop_active_recording(moderator_game_id, game_state, reason="moderator_stop")
     return jsonify({
-        "status": "ok",
-        "game_id": moderator_game_id,
-        "recording_id": payload.get("recording_id") if payload else None,
-        "server_ts": payload.get("server_ts") if payload else None,
-    })
+        "status": "error",
+        "message": (
+            "Manual recording stop is disabled. "
+            "Role swap ends round 1, and ending the game ends round 2."
+        ),
+    }), 400
 
 
 def _parse_client_ts(value):
