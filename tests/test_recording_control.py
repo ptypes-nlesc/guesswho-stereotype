@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 
 class TestRecordingControl:
-    """Test moderator recording start/stop controls and socket broadcasts."""
+    """Test moderator recording start, rejected manual stop, and socket broadcasts."""
 
     def moderator_login(self, client):
         with client.session_transaction() as sess:
@@ -61,7 +61,7 @@ class TestRecordingControl:
         data = json.loads(res.data)
         assert data["status"] == "error"
 
-    def test_recording_start_and_stop_updates_state(self, client, reset_globals):
+    def test_recording_start_updates_state_and_stop_is_rejected(self, client, reset_globals):
         from app import get_game_state
 
         game_id = self._start_game_in_progress(client)
@@ -78,13 +78,13 @@ class TestRecordingControl:
         assert game_state["recording_id"] == start_data["recording_id"]
 
         res_stop = client.post("/moderator/control/recording/stop", json={})
-        assert res_stop.status_code == 200
+        assert res_stop.status_code == 400
         stop_data = json.loads(res_stop.data)
-        assert stop_data["status"] == "ok"
-        assert stop_data["recording_id"] == start_data["recording_id"]
+        assert stop_data["status"] == "error"
 
         game_state = get_game_state(game_id)
-        assert game_state["recording_active"] is False
+        assert game_state["recording_active"] is True
+        assert game_state["recording_id"] == start_data["recording_id"]
 
     def test_recording_start_rejects_duplicate(self, client, reset_globals):
         self._start_game_in_progress(client)
@@ -95,14 +95,13 @@ class TestRecordingControl:
         data = json.loads(res.data)
         assert "already active" in data["message"].lower()
 
-    def test_recording_stop_is_idempotent(self, client, reset_globals):
+    def test_recording_stop_is_rejected_when_idle(self, client, reset_globals):
         self._start_game_in_progress(client)
 
         res = client.post("/moderator/control/recording/stop", json={})
-        assert res.status_code == 200
+        assert res.status_code == 400
         data = json.loads(res.data)
-        assert data["status"] == "ok"
-        assert data.get("message") == "No active recording"
+        assert data["status"] == "error"
 
     def test_recording_status_in_control_status(self, client, reset_globals):
         self._start_game_in_progress(client)

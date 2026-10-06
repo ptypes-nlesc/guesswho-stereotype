@@ -166,11 +166,6 @@
             background: #dc2626;
             border-color: #b91c1c;
         }
-        .control-btn.btn-record-stop {
-            --btn-ring: rgba(190, 24, 93, 0.4);
-            background: #be185d;
-            border-color: #9d174d;
-        }
         .control-btn.btn-swap {
             --btn-ring: rgba(217, 119, 6, 0.4);
             background: #d97706;
@@ -484,7 +479,6 @@
             <button id="btn-start" class="control-btn btn-start" type="button">Spel starten</button>
             <button id="btn-record-start" class="control-btn btn-record-start" type="button">Opname starten</button>
             <button id="btn-swap" class="control-btn btn-swap" type="button">Rollen wisselen</button>
-            <button id="btn-record-stop" class="control-btn btn-record-stop" type="button">Opname stoppen</button>
             <button id="btn-end" class="control-btn btn-end" type="button">Spel beëindigen</button>
         </div>
 
@@ -523,7 +517,7 @@
                 </li>
                 <li>
                     <strong>Opname starten</strong> — eenmalig, zodra iedereen in voice zit.
-                    Laat de opname lopen tijdens <em>beide</em> rondes (niet tussentijds stoppen tenzij nodig).
+                    Laat de opname lopen tijdens <em>beide</em> rondes.
                 </li>
                 <li>
                     Speel <strong>ronde 1</strong>. Daarna <strong>Rollen wisselen</strong> voor ronde 2:
@@ -532,17 +526,17 @@
                 </li>
                 <li>
                     Speel <strong>ronde 2</strong>. Controleer eventueel de sectie “Audio-opnames”
-                    (3/3 stems na een stop).
+                    (3/3 stems voor de lopende take).
                 </li>
                 <li>
-                    <strong>Opname stoppen</strong>, daarna <strong>Spel beëindigen</strong>.
+                    <strong>Spel beëindigen</strong>. Dat stopt de opname van ronde 2 en uploadt de stems.
                     Open daarna opnieuw de toegang voor het volgende paar deelnemers.
                 </li>
             </ol>
             <p class="workflow-tip">
-                <strong>Tip:</strong> Stop de opname pas als ronde 2 klaar is. Bij “Rollen wisselen”
-                hoef je de opname niet handmatig te herstarten. Bij uploadfouten kan de deelnemer
-                lokaal downloaden; de checklist toont of alle stems binnen zijn.
+                <strong>Tip:</strong> Beëindig het spel pas als ronde 2 klaar is. Bij “Rollen wisselen”
+                wordt ronde 1 geüpload en start ronde 2 vanzelf een nieuwe take.
+                Bij uploadfouten kan de deelnemer lokaal downloaden; de checklist toont of alle stems binnen zijn.
             </p>
         </div>
 
@@ -784,14 +778,12 @@
             const btnSwap = document.getElementById('btn-swap');
             const btnEnd = document.getElementById('btn-end');
             const btnRecordStart = document.getElementById('btn-record-start');
-            const btnRecordStop = document.getElementById('btn-record-stop');
 
             btnOpen.disabled = true;
             btnStart.disabled = true;
             btnSwap.disabled = true;
             btnEnd.disabled = true;
             btnRecordStart.disabled = true;
-            btnRecordStop.disabled = true;
 
             if (state === 'NO_SESSION' || state === 'CLOSED' || state === 'ENDED') {
                 btnOpen.disabled = false;
@@ -808,12 +800,8 @@
             if (state === 'OPEN' || state === 'READY' || state === 'IN_PROGRESS') {
                 btnEnd.disabled = false;
             }
-            if (state === 'IN_PROGRESS') {
-                if (statusData?.recording_active) {
-                    btnRecordStop.disabled = false;
-                } else {
-                    btnRecordStart.disabled = false;
-                }
+            if (state === 'IN_PROGRESS' && !statusData?.recording_active) {
+                btnRecordStart.disabled = false;
             }
         }
 
@@ -877,21 +865,6 @@
                     updateStatus();
                 } else {
                     showFeedback('Opname starten mislukt: ' + (data.message || 'onbekende fout'), 'error');
-                }
-            } catch (err) {
-                showFeedback('Fout: ' + err.message, 'error');
-            }
-        };
-
-        document.getElementById('btn-record-stop').onclick = async () => {
-            try {
-                const res = await postControl('/moderator/control/recording/stop');
-                const data = await res.json();
-                if (data.status === 'ok') {
-                    showFeedback('Opname gestopt.', 'ok');
-                    updateStatus();
-                } else {
-                    showFeedback('Opname stoppen mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
                 showFeedback('Fout: ' + err.message, 'error');

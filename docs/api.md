@@ -32,7 +32,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 - `POST /moderator/control/open`
 - `POST /moderator/control/close`
 - `POST /moderator/control/start` — `READY` → `IN_PROGRESS`
-- `POST /moderator/control/end` — `IN_PROGRESS` → `ENDED`
+- `POST /moderator/control/end` — `IN_PROGRESS` → `ENDED`. Stops an active recording.
 - `POST /moderator/control/swap_roles`
 - `POST /moderator/control/reset` — `CLOSED`
 - `POST /moderator/tokens/generate` — `{"count": 1..100}`, returns CSV
@@ -40,7 +40,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 ### Recording
 
 - `POST /moderator/control/recording/start` — while `IN_PROGRESS`. Broadcasts `recording_start` (`recording_id`, `server_ts`). Clients start MediaRecorder.
-- `POST /moderator/control/recording/stop` — broadcasts `recording_stop`. Idempotent if already idle. Clients POST stems to `/audio/upload`.
+- `POST /moderator/control/recording/stop` — rejected with 400. A role swap ends round 1 and ending the game ends round 2; both broadcast `recording_stop`. Clients POST stems to `/audio/upload`.
 - `POST /audio/upload` — multipart:
   - required: `file`, `game_id`, `recording_id`, `role`, `client_received_ts`, `client_recorder_start_ts`, `client_recorder_stop_ts`
   - optional: `participant_id` (required for players), `server_ts`, `server_stop_ts`, `mime_type`
