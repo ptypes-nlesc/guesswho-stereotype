@@ -896,4 +896,148 @@ class TestGameFlow:
         assert status["player1_token"] == tokens[1]
         assert status["player2_token"] == tokens[0]
 
+    def _start_ready_game(self, client):
+        self.moderator_login(client)
+        res_open = client.post("/moderator/control/open", json={})
+        game_id = json.loads(res_open.data)["game_id"]
+        tokens_res = client.post("/moderator/tokens/generate", json={"count": 2})
+        tokens = self.extract_tokens_from_csv(tokens_res.data)
+        client.post("/join/enter", json={"token": tokens[0]})
+        client.post("/join/enter", json={"token": tokens[1]})
+        return game_id
+
+    def _round_row(self, game_id, round_number):
+        from app import get_db_conn
+
+        with get_db_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT chosen_card_id, ended_at
+                FROM rounds
+                WHERE game_id = %s AND round_number = %s
+                """,
+                (game_id, round_number),
+            )
+            return cursor.fetchone()
+
+    def _event_texts(self, game_id, action):
+        from app import get_transcript
+
+        return [
+            row.get("text")
+            for row in get_transcript(game_id, limit=500)
+            if row.get("action") == action
+        ]
+
+    def test_restore_board_reopens_finished_round(self, client, reset_globals):
+        """Eleven clicks end the round; restore puts the same round back to a full board."""
+        from app import get_eliminated_cards, get_game_state
+
+        game_id = self._start_ready_game(client)
+        client.post("/moderator/control/start", json={})
+        before = get_game_state(game_id)
+        secret_before = self._round_row(game_id, 1)["chosen_card_id"]
+
+        for card_id in range(1, 12):
+            res = client.post("/eliminate_card", json={"game_id": game_id, "card_id": card_id})
+            assert res.status_code == 200
+
+        assert len(get_eliminated_cards(game_id, round_number=1)) == 11
+        assert get_game_state(game_id)["round_phase"] == "COMPLETE"
+        assert self._round_row(game_id, 1)["ended_at"] is not None
+        assert "Einde van de ronde" in self._event_texts(game_id, "round_complete")
+
+        page = client.get("/dashboard")
+        assert b"Bord terugzetten" in page.data
+
+        restored = client.post("/moderator/control/restore_board", json={})
+        assert restored.status_code == 200
+        body = json.loads(restored.data)
+        assert body["status"] == "ok"
+        assert body["round_number"] == 1
+        assert body["chosen_card_id"] == secret_before
+        assert body["player1_id"] == before["player1_id"]
+        assert body["player2_id"] == before["player2_id"]
+
+        after = get_game_state(game_id)
+        assert after["state"] == "IN_PROGRESS"
+        assert after["round_number"] == 1
+        assert after["round_phase"] == "ACTIVE"
+        assert after["player1_id"] == before["player1_id"]
+        assert after["player2_id"] == before["player2_id"]
+        assert get_eliminated_cards(game_id, round_number=1) == set()
+        row = self._round_row(game_id, 1)
+        assert row["ended_at"] is None
+        assert row["chosen_card_id"] == secret_before
+        assert self._event_texts(game_id, "round_complete") == []
+        assert "Bord teruggezet" in self._event_texts(game_id, "board_restored")
+
+    def test_restore_board_on_round_two_keeps_round_one(self, client, reset_globals):
+        """Restoring round 2 reopens that round and leaves round 1 eliminations in place."""
+        from app import get_eliminated_cards, get_game_state
+
+        game_id = self._start_ready_game(client)
+        client.post("/moderator/control/start", json={})
+        for card_id in range(1, 12):
+            assert client.post(
+                "/eliminate_card", json={"game_id": game_id, "card_id": card_id}
+            ).status_code == 200
+        assert client.post("/moderator/control/swap_roles", json={}).status_code == 200
+
+        round2_secret = self._round_row(game_id, 2)["chosen_card_id"]
+        swapped = get_game_state(game_id)
+        for card_id in range(1, 12):
+            assert client.post(
+                "/eliminate_card", json={"game_id": game_id, "card_id": card_id}
+            ).status_code == 200
+        assert get_game_state(game_id)["round_phase"] == "COMPLETE"
+        assert self._round_row(game_id, 2)["ended_at"] is not None
+
+        restored = client.post("/moderator/control/restore_board", json={})
+        assert restored.status_code == 200
+        body = json.loads(restored.data)
+        assert body["round_number"] == 2
+        assert body["chosen_card_id"] == round2_secret
+        assert body["player1_id"] == swapped["player1_id"]
+        assert body["player2_id"] == swapped["player2_id"]
+
+        after = get_game_state(game_id)
+        assert after["round_number"] == 2
+        assert after["round_phase"] == "ACTIVE"
+        assert after["player1_id"] == swapped["player1_id"]
+        assert after["player2_id"] == swapped["player2_id"]
+        assert get_eliminated_cards(game_id, round_number=2) == set()
+        assert len(get_eliminated_cards(game_id, round_number=1)) == 11
+        assert self._round_row(game_id, 2)["ended_at"] is None
+        assert self._round_row(game_id, 2)["chosen_card_id"] == round2_secret
+        assert self._round_row(game_id, 1)["ended_at"] is not None
+        complete = self._event_texts(game_id, "round_complete")
+        assert "Einde van de ronde" in complete
+        assert "Einde van het spel" not in complete
+
+    def test_restore_board_rejects_inactive_and_non_moderators(self, client, reset_globals):
+        """Only a moderator can restore, and only while the game is in progress."""
+        from app import app as flask_app
+
+        anonymous = flask_app.test_client()
+        assert anonymous.post("/moderator/control/restore_board", json={}).status_code == 403
+
+        game_id = self._start_ready_game(client)
+        ready = client.post("/moderator/control/restore_board", json={})
+        assert ready.status_code == 400
+
+        client.post("/moderator/control/start", json={})
+        client.get("/logout")
+        participant = flask_app.test_client()
+        assert participant.post(
+            "/moderator/control/restore_board",
+            json={"game_id": game_id, "participant_id": "someone"},
+        ).status_code == 403
+
+        self.moderator_login(client)
+        client.post("/moderator/control/end", json={})
+        ended = client.post("/moderator/control/restore_board", json={})
+        assert ended.status_code == 400
+
 

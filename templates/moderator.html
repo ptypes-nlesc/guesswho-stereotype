@@ -191,10 +191,11 @@
                             );
                         }
                     } else if (entry.action === 'eliminate' && entry.card) {
-                        const label = entry.card_name || `Kaart ${entry.card}`;
-                        DomSafe.appendEmLine(transcriptDiv, `Kaart geëlimineerd: ${label}`, 'color:red;');
+                        appendEliminationLine(entry.card_name || `Kaart ${entry.card}`);
                     } else if (entry.action === 'round_complete') {
                         appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
+                    } else if (entry.action === 'board_restored') {
+                        DomSafe.appendEmLine(transcriptDiv, entry.text || 'Bord teruggezet', 'color:gray;');
                     }
                 });
                 checkEndOfGame();
@@ -275,6 +276,12 @@
             DomSafe.appendRoundCompleteMessage(transcriptDiv, message);
         }
 
+        function appendEliminationLine(label) {
+            const line = DomSafe.appendEmLine(transcriptDiv, `Kaart geëlimineerd: ${label}`, 'color:red;');
+            if (line) line.dataset.eliminationLine = '1';
+            return line;
+        }
+
         const endOfGameHighlighter = createEndOfGameHighlighter({appendMessage, autoAppendMessage: false});
 
         function checkEndOfGame() {
@@ -320,8 +327,7 @@
             );
         });
         socket.on("eliminate", data => {
-            const label = data.card_name || `Kaart ${data.card}`;
-            DomSafe.appendEmLine(transcriptDiv, `Kaart geëlimineerd: ${label}`, "color:red;");
+            appendEliminationLine(data.card_name || `Kaart ${data.card}`);
             const cardEl = document.getElementById(`card${data.card}`);
             if (cardEl) cardEl.classList.add("eliminated");
             setTimeout(checkEndOfGame, 100);
@@ -330,6 +336,13 @@
         socket.on("round_complete", data => {
             appendRoundCompleteMessage(data?.message || 'Einde van de ronde');
             setTimeout(checkEndOfGame, 100);
+        });
+
+        socket.on("board_restored", data => {
+            if (data && data.game_id && data.game_id !== gameId) return;
+            document.querySelectorAll("[data-elimination-line]").forEach((node) => node.remove());
+            endOfGameHighlighter.reset();
+            DomSafe.appendEmLine(transcriptDiv, data?.message || "Bord teruggezet", "color:gray;");
         });
 
         // --- Voice (WebRTC) -------------------------------------------

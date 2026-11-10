@@ -130,6 +130,8 @@
                         }
                     } else if (entry.action === 'round_complete') {
                         appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
+                    } else if (entry.action === 'board_restored') {
+                        DomSafe.appendEmLine(transcriptDiv, entry.text || 'Bord teruggezet', 'color:gray;');
                     }
                 });
                 // Check if end-of-game condition already met when loading history
@@ -276,6 +278,12 @@
         socket.on('round_complete', data => {
             appendRoundCompleteMessage(data?.message || 'Einde van de ronde');
             setTimeout(checkEndOfGame, 100);
+        });
+
+        socket.on('board_restored', data => {
+            if (data && data.game_id && data.game_id !== gameId) return;
+            endOfGameHighlighter.reset();
+            DomSafe.appendEmLine(transcriptDiv, data?.message || 'Bord teruggezet', 'color:gray;');
         });
 
         // --- Elimination logic -----------------------------------------
