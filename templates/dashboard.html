@@ -171,6 +171,11 @@
             background: #d97706;
             border-color: #b45309;
         }
+        .control-btn.btn-restore {
+            --btn-ring: rgba(14, 116, 144, 0.45);
+            background: #0e7490;
+            border-color: #155e75;
+        }
         .control-btn.btn-end {
             --btn-ring: rgba(124, 58, 237, 0.4);
             background: #7c3aed;
@@ -479,6 +484,7 @@
             <button id="btn-start" class="control-btn btn-start" type="button">Spel starten</button>
             <button id="btn-record-start" class="control-btn btn-record-start" type="button">Opname starten</button>
             <button id="btn-swap" class="control-btn btn-swap" type="button">Rollen wisselen</button>
+            <button id="btn-restore" class="control-btn btn-restore" type="button">Bord terugzetten</button>
             <button id="btn-end" class="control-btn btn-end" type="button">Spel beëindigen</button>
         </div>
 
@@ -520,7 +526,12 @@
                     Laat de opname lopen tijdens <em>beide</em> rondes.
                 </li>
                 <li>
-                    Speel <strong>ronde 1</strong>. Daarna <strong>Rollen wisselen</strong> voor ronde 2:
+                    Speel <strong>ronde 1</strong>.
+                    {% if staff_role != 'auditor' %}
+                    Als iemand de kaarten meteen wegklikt, gebruik <strong>Bord terugzetten</strong>.
+                    Dezelfde ronde gaat verder.
+                    {% endif %}
+                    Daarna <strong>Rollen wisselen</strong> voor ronde 2:
                     de opname van ronde 1 wordt afgerond en geüpload; ronde 2 start automatisch een nieuwe take.
                     Chat en weergaven wisselen mee na de doorverwijzing.
                 </li>
@@ -776,12 +787,14 @@
             const btnOpen = document.getElementById('btn-open');
             const btnStart = document.getElementById('btn-start');
             const btnSwap = document.getElementById('btn-swap');
+            const btnRestore = document.getElementById('btn-restore');
             const btnEnd = document.getElementById('btn-end');
             const btnRecordStart = document.getElementById('btn-record-start');
 
             btnOpen.disabled = true;
             btnStart.disabled = true;
             btnSwap.disabled = true;
+            btnRestore.disabled = true;
             btnEnd.disabled = true;
             btnRecordStart.disabled = true;
 
@@ -796,6 +809,9 @@
             }
             if (statusData?.can_swap_roles === true) {
                 btnSwap.disabled = false;
+            }
+            if (state === 'IN_PROGRESS') {
+                btnRestore.disabled = false;
             }
             if (state === 'OPEN' || state === 'READY' || state === 'IN_PROGRESS') {
                 btnEnd.disabled = false;
@@ -850,6 +866,25 @@
                     updateStatus();
                 } else {
                     showFeedback('Rollen wisselen mislukt: ' + (data.message || 'onbekende fout'), 'error');
+                }
+            } catch (err) {
+                showFeedback('Fout: ' + err.message, 'error');
+            }
+        };
+
+        document.getElementById('btn-restore').onclick = async () => {
+            const confirmed = window.confirm(
+                'Alle weggeklikte kaarten van deze ronde komen terug. Als de ronde daardoor al was afgelopen, gaat het spel verder.'
+            );
+            if (!confirmed) return;
+            try {
+                const res = await postControl('/moderator/control/restore_board');
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showFeedback('Bord teruggezet. Dezelfde ronde gaat verder.', 'ok');
+                    updateStatus();
+                } else {
+                    showFeedback('Bord terugzetten mislukt: ' + (data.message || 'onbekende fout'), 'error');
                 }
             } catch (err) {
                 showFeedback('Fout: ' + err.message, 'error');

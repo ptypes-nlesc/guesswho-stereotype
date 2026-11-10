@@ -9,9 +9,10 @@
 5. **Start Game** — `IN_PROGRESS`. Player 1 sees the secret card; player 2 sees the grid.
 6. **Start recording** before talk begins. Leave it running through both rounds.
 7. Observe from **Moderator View** (`/moderator`): chat, voice, secret card, eliminations.
-8. **Swap Roles** for round 2. Round 1 audio is finalized and uploaded; round 2 starts a new take. Pages redirect on their own.
-9. **Stop recording**, then **End Game** (`ENDED`).
-10. **Reset Session** (`CLOSED`) before the next pair.
+8. If player 2 clicks the cards away, **Bord terugzetten** on the dashboard puts them back and continues the same round.
+9. **Swap Roles** for round 2. Round 1 audio is finalized and uploaded; round 2 starts a new take. Pages redirect on their own.
+10. **Stop recording**, then **End Game** (`ENDED`).
+11. **Reset Session** (`CLOSED`) before the next pair.
 
 Staff login is session-based. The moderator is not a participant. Moderator chat is stored with `role = moderator`.
 

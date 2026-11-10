@@ -108,6 +108,8 @@
                         }
                     } else if (entry.action === 'round_complete') {
                         appendRoundCompleteMessage(entry.text || 'Einde van de ronde');
+                    } else if (entry.action === 'board_restored') {
+                        DomSafe.appendEmLine(transcriptDiv, entry.text || 'Bord teruggezet', 'color:gray;');
                     }
                 });
             })
@@ -249,6 +251,12 @@
 
         socket.on('round_complete', data => {
             appendRoundCompleteMessage(data?.message || 'Einde van de ronde');
+        });
+
+        socket.on('board_restored', data => {
+            if (data && data.game_id && data.game_id !== gameId) return;
+            document.querySelectorAll('[data-round-complete-message]').forEach((node) => node.remove());
+            DomSafe.appendEmLine(transcriptDiv, data?.message || 'Bord teruggezet', 'color:gray;');
         });
 
         // Player 1 does not receive elimination messages - only moderator and player2 should see them

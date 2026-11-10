@@ -44,8 +44,22 @@ function createEndOfGameHighlighter(options) {
         }
     }
 
+    function reset() {
+        endOfGameDisplayed = false;
+        document.querySelectorAll(cardSelector).forEach((card) => {
+            card.classList.remove("eliminated");
+            card.style.pointerEvents = "";
+            card.style.opacity = "";
+            card.style.cursor = "";
+            card.style.border = "";
+            card.style.boxShadow = "";
+        });
+        document.querySelectorAll(messageSelector).forEach((node) => node.remove());
+    }
+
     return {
         countRemainingCards,
-        checkEndOfGame
+        checkEndOfGame,
+        reset
     };
 }

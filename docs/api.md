@@ -34,6 +34,7 @@ JSON bodies use `{"status": "ok", ...}` or `{"status": "error", "message": "..."
 - `POST /moderator/control/start` — `READY` → `IN_PROGRESS`
 - `POST /moderator/control/end` — `IN_PROGRESS` → `ENDED`. Stops an active recording.
 - `POST /moderator/control/swap_roles`
+- `POST /moderator/control/restore_board` — while `IN_PROGRESS`. Deletes the current round’s eliminations, clears that round’s `ended_at` and `round_complete` event, sets `round_phase` back to `ACTIVE`, and broadcasts `board_restored`. Same round, secret card, and roles.
 - `POST /moderator/control/reset` — `CLOSED`
 - `POST /moderator/tokens/generate` — `{"count": 1..100}`, returns CSV
 
@@ -60,7 +61,7 @@ Players must send the bound `participant_id`. Staff events (`role: moderator` / 
 
 **Client → server:** `join`, `chat`, `voice_join`, `webrtc_signal`, `speaking`
 
-**Server → client (selected):** `system`, `chat`, `peers_list`, `new_peer_joined`, `webrtc_signal`, `card_eliminated`, `eliminate`, `round_complete`, `roles_swapped`, `game_ended`, `speaking`
+**Server → client (selected):** `system`, `chat`, `peers_list`, `new_peer_joined`, `webrtc_signal`, `card_eliminated`, `eliminate`, `round_complete`, `board_restored`, `roles_swapped`, `game_ended`, `speaking`
 
 - `speaking` (client → server, player1/player2 only) — `{game_id, role, participant_id, speaking}`. Relayed to the moderator and auditor rooms only. Not stored.
 - `speaking` (server → staff) — `{game_id, role, speaking}` for live “who is talking” on the observer view.

@@ -97,6 +97,13 @@ class TestAuditorAuth:
         assert client.post("/moderator/control/start", json={}).status_code == 403
         assert client.post("/moderator/control/end", json={}).status_code == 403
 
+    def test_auditor_cannot_restore_board(self, client, reset_globals):
+        self.auditor_login(client)
+        res = client.post("/moderator/control/restore_board", json={})
+        assert res.status_code == 403
+        dashboard = client.get("/dashboard")
+        assert b'id="btn-restore"' not in dashboard.data
+
     def test_auditor_can_view_active_session(self, client, reset_globals):
         self.moderator_login(client)
         open_res = client.post("/moderator/control/open", json={})

@@ -2134,6 +2134,108 @@ def moderator_swap_roles():
     })
 
 
+def _clear_current_round_board(game_id, round_number):
+    """Drop this round's eliminations and completion. Earlier rounds stay.
+
+    events.timestamp is DATETIME with whole seconds, so a round-1
+    round_complete and the round-2 start can share a second. Round 2 is
+    bounded by the roles_swapped event id instead of that timestamp.
+    """
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "DELETE FROM eliminated_cards WHERE game_id = %s AND round_number = %s",
+            (game_id, round_number),
+        )
+        c.execute(
+            """
+            UPDATE rounds
+            SET ended_at = NULL
+            WHERE game_id = %s AND round_number = %s
+            """,
+            (game_id, round_number),
+        )
+        if round_number <= 1:
+            c.execute(
+                "DELETE FROM events WHERE game_id = %s AND action = 'round_complete'",
+                (game_id,),
+            )
+            return
+        c.execute(
+            """
+            SELECT COALESCE(MAX(id), 0) AS boundary
+            FROM events
+            WHERE game_id = %s AND action = 'roles_swapped'
+            """,
+            (game_id,),
+        )
+        boundary = c.fetchone()["boundary"]
+        c.execute(
+            """
+            DELETE FROM events
+            WHERE game_id = %s AND action = 'round_complete' AND id > %s
+            """,
+            (game_id, boundary),
+        )
+
+
+@app.route("/moderator/control/restore_board", methods=["POST"])
+def moderator_restore_board():
+    """Put the current round's cards back and reopen that same round."""
+    if not is_moderator():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    moderator_game_id = session.get("moderator_session_game_id")
+    if not moderator_game_id:
+        moderator_game_id = get_current_session_game_id()
+        if moderator_game_id:
+            session["moderator_session_game_id"] = moderator_game_id
+    if not moderator_game_id or not get_game_state(moderator_game_id):
+        return jsonify({"status": "error", "message": "No active session"}), 400
+
+    game_state = get_game_state(moderator_game_id)
+    if game_state.get("state") != "IN_PROGRESS":
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot restore the board in state: {game_state.get('state')}",
+        }), 400
+
+    try:
+        current_round = int(game_state.get("round_number", 1))
+    except (TypeError, ValueError):
+        current_round = 1
+
+    chosen_before = get_chosen_card(moderator_game_id)
+    player1_id = game_state.get("player1_id")
+    player2_id = game_state.get("player2_id")
+
+    _clear_current_round_board(moderator_game_id, current_round)
+
+    game_state = get_game_state(moderator_game_id) or game_state
+    game_state["round_phase"] = "ACTIVE"
+    set_game_state(moderator_game_id, game_state)
+
+    record_event("system", "board_restored", moderator_game_id, text="Bord teruggezet")
+    socketio.emit(
+        "board_restored",
+        {
+            "game_id": moderator_game_id,
+            "round_number": current_round,
+            "message": "Bord teruggezet",
+        },
+        to=f"game:{moderator_game_id}",
+    )
+
+    return jsonify({
+        "status": "ok",
+        "game_id": moderator_game_id,
+        "round_number": current_round,
+        "chosen_card_id": chosen_before,
+        "player1_id": player1_id,
+        "player2_id": player2_id,
+    })
+
+
 @app.route("/moderator/control/reset", methods=["POST"])
 def moderator_reset_session():
     """Moderator resets session (transitions ENDED -> CLOSED)."""
